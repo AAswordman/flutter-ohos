@@ -132,17 +132,6 @@ export default class TextInputChannel {
     this.channel.invokeMethod('TextInputClient.updateEditingState', [inputClientId, state]);
   }
 
-  updateEditingStateWithTag(
-    inputClientId: number, editStates: Map<string, TextEditState>): void {
-    const json: Map<string, EditingState> = new Map();
-    editStates.forEach((state: TextEditState, uniqueIdentifier: string) => {
-      json.set(
-        uniqueIdentifier,
-        this.createEditingStateJSON(state.text, state.selectionStart, state.selectionEnd, -1, -1));
-    });
-    this.channel.invokeMethod('TextInputClient.updateEditingStateWithTag', [inputClientId, json]);
-  }
-
   /**
    * Updates the editing state with deltas.
    * @param inputClientId - The input client ID
@@ -326,10 +315,6 @@ export interface TextInputMethodHandler {
 
   setCursorSizeAndPosition(cursorInfo: inputMethod.CursorInfo): void;
 
-  setAutoFillFieldRect(left: number, top: number, width: number, height: number): void;
-
-  setAutoFillPageRect(left: number, top: number, width: number, height: number): void;
-
   setEditingState(editingState: TextEditState): void;
 
   clearClient(): void;
@@ -348,8 +333,8 @@ export class Configuration {
   obscureText: boolean = false;
   /** Whether autocorrect is enabled. */
   autocorrect: boolean = false;
-  /** Autofill metadata for this field, or undefined when autofill is disabled. */
-  autofill?: Autofill;
+  /** Whether autofill is enabled. */
+  autofill: boolean = false;
   /** Whether suggestions are enabled. */
   enableSuggestions: boolean = false;
   /** Whether IME personalized learning is enabled. */
@@ -379,7 +364,7 @@ export class Configuration {
    * @param inputType - The input type
    * @param inputAction - The input action
    * @param actionLabel - The action label
-   * @param autofill - Autofill metadata, or undefined when disabled
+   * @param autofill - Whether autofill is enabled
    * @param contentListString - Content commit MIME types
    * @param deviceKind - The pointer device kind
    * @param fields - Array of field configurations
@@ -392,7 +377,7 @@ export class Configuration {
     inputType: InputType,
     inputAction: Number,
     actionLabel: String,
-    autofill: Autofill | undefined,
+    autofill: boolean,
     contentListString: [],
     deviceKind: PointerDeviceKind,
     fields: Configuration[]
@@ -471,18 +456,11 @@ export class Configuration {
       InputType.fromJson(json.inputType),
       inputAction,
       json.actionLabel ?? null,
-      Configuration.parseAutofill(json.autofill),
+      json.autofill ?? null,
       contentList as Any,
       json.deviceKind ?? PointerDeviceKind.UNKNOWN,
       fields
     );
-  }
-
-  private static parseAutofill(json: Any): Autofill | undefined {
-    if (json === null || json === undefined || json === false) {
-      return undefined;
-    }
-    return Autofill.fromJson(json);
   }
 
   /**
@@ -517,7 +495,7 @@ export class Configuration {
       inputType,
       inputAction,
       map.get('actionLabel') ?? null,
-      Configuration.parseAutofill(map.get('autofill')),
+      map.get('autofill') ?? null,
       contentList as Any,
       map.get('deviceKind') ?? PointerDeviceKind.UNKNOWN,
       fields
@@ -669,22 +647,23 @@ export class TextEditState {
    * @returns A new TextEditState instance
    */
   static fromJson(textEditState: Any): TextEditState {
-    if (typeof textEditState.get === 'function') {
+    if (textEditState.text != null && textEditState.text != undefined && textEditState.text != "") {
       return new TextEditState(
-        textEditState.get('text') ?? '',
-        textEditState.get('selectionBase') ?? -1,
-        textEditState.get('selectionExtent') ?? -1,
-        textEditState.get('composingBase') ?? -1,
-        textEditState.get('composingExtent') ?? -1,
-      );
+        textEditState.text,
+        textEditState.selectionBase,
+        textEditState.selectionExtent,
+        textEditState.composingBase,
+        textEditState.composingExtent
+      )
+    } else {
+      return new TextEditState(
+        textEditState.get('text'),
+        textEditState.get('selectionBase'),
+        textEditState.get('selectionExtent'),
+        textEditState.get('composingBase'),
+        textEditState.get('composingExtent')
+      )
     }
-    return new TextEditState(
-      textEditState.text ?? '',
-      textEditState.selectionBase ?? -1,
-      textEditState.selectionExtent ?? -1,
-      textEditState.composingBase ?? -1,
-      textEditState.composingExtent ?? -1,
-    );
   }
 }
 
@@ -749,25 +728,6 @@ class TextInputCallback implements MethodCallHandler {
       width: 100,
       height: 50,
     })
-    const dpr = this.devicePixelRatio;
-    const fieldLeft = (this.windowPosition?.left ?? 0 as number) + this.inputPosition.left * dpr;
-    const fieldTop = (this.windowPosition?.top ?? 0 as number) + this.inputPosition.top * dpr;
-    const fieldWidth = this.inputPosition.width * dpr;
-    const fieldHeight = this.inputPosition.height * dpr;
-    this.textInputMethodHandler.setAutoFillFieldRect(
-      fieldLeft,
-      fieldTop,
-      fieldWidth,
-      fieldHeight,
-    );
-    const winWidth = this.windowPosition?.width ?? 0;
-    const winHeight = this.windowPosition?.height ?? 0;
-    this.textInputMethodHandler.setAutoFillPageRect(
-      this.windowPosition?.left ?? 0,
-      this.windowPosition?.top ?? 0,
-      winWidth,
-      winHeight,
-    );
   }
 
 
@@ -806,6 +766,10 @@ class TextInputCallback implements MethodCallHandler {
         this.textInputMethodHandler.updateConfig(newConfig);
         result.success(null);
         break;
+      case "TextInput.requestAutofill":
+      //TODO: requestAutofill
+        result.notImplemented();
+        break;
       case "TextInput.setPlatformViewClient":
       //TODO:
         result.notImplemented();
@@ -820,12 +784,11 @@ class TextInputCallback implements MethodCallHandler {
         this.cursorPosition.width = args.get('width');
         this.cursorPosition.height = args.get('height');
         this.setCursorPosition();
-        result.success(null);
         break;
       case "TextInput.setEditableSizeAndTransform":
-        this.saveEditableSizeAndTransform(args.get('width'), args.get('height'), args.get('transform'));
+        this.inputPosition.left = args.get('transform')[12];
+        this.inputPosition.top = args.get('transform')[13];
         this.setCursorPosition();
-        result.success(null);
         break;
       case "TextInput.clearClient":
         this.textInputMethodHandler.clearClient();
@@ -835,172 +798,13 @@ class TextInputCallback implements MethodCallHandler {
       //TODO:
         result.notImplemented();
         break;
-      case "TextInput.requestAutofill":
-        this.textInputMethodHandler.requestAutofill();
-        result.success(null);
-        break;
       case "TextInput.finishAutofillContext":
-        this.textInputMethodHandler.finishAutofillContext(args as boolean);
-        result.success(null);
+      //TODO:
+        result.notImplemented();
         break;
       default:
         result.notImplemented();
         break;
     }
   }
-
-  saveEditableSizeAndTransform(width: number, height: number, transform: Array<number>) {
-    const matrix: Array<number> = transform;
-    const minMax: Array<number> = [];
-    const isAffine = matrix[3] == 0 && matrix[7] == 0 && matrix[15] == 1;
-    minMax[0] = minMax[1] = matrix[12] / matrix[15];
-    minMax[2] = minMax[3] = matrix[13] / matrix[15];
-    const temArr: Array<ESObject> = [{ x: width, y: 0 }, { x: width, y: height }, { x: width, y: height }];
-    for (let i = 0; i < temArr.length; i++) {
-      const w = isAffine ? 1 : 1 / (matrix[3] * temArr[i].x + matrix[7] * temArr[i].y + matrix[15]);
-      const tx = (matrix[0] * temArr[i].x + matrix[4] * temArr[i].y + matrix[12]) * w;
-      const ty = (matrix[1] * temArr[i].x + matrix[5] * temArr[i].y + matrix[13]) * w;
-      if (tx < minMax[0]) {
-        minMax[0] = tx;
-      } else if (tx > minMax[1]) {
-        minMax[1] = tx;
-      }
-      if (ty < minMax[2]) {
-        minMax[2] = ty;
-      } else if (ty > minMax[3]) {
-        minMax[3] = ty;
-      }
-    }
-    this.inputPosition.left = minMax[0];
-    this.inputPosition.top = minMax[2];
-    this.inputPosition.width = minMax[1] - minMax[0];
-    this.inputPosition.height = minMax[3] - minMax[2];
-  }
 }
-
-class Autofill {
-  public readonly uniqueIdentifier: string;
-  public readonly hints: string[];
-  public readonly editState: TextEditState;
-  public readonly hintText: string | null;
-
-  static fromJson(json: Any): Autofill {
-    const uniqueIdentifier: string = json.uniqueIdentifier;
-    if (!uniqueIdentifier) {
-      throw new Error("Autofill JSON missing 'uniqueIdentifier' property.");
-    }
-    let autofillHints: string[] = [];
-    if (json.hints !== null && json.hints !== undefined) {
-      autofillHints = json.hints.map((hint: Any): string =>
-        Autofill.translateAutofillHint(String(hint)),
-      );
-    }
-    const hintText: string | null =
-      json.hintText === null || json.hintText === undefined
-        ? null
-        : String(json.hintText);
-    const editingStateJson: Any = (json as Any).editingValue;
-    if (editingStateJson === null || editingStateJson === undefined) {
-      throw new Error("Autofill JSON missing 'editingValue' property.");
-    }
-    return new Autofill(
-      uniqueIdentifier,
-      autofillHints,
-      hintText,
-      TextEditState.fromJson(editingStateJson),
-    );
-  }
-
-  private static translateAutofillHint(hint: string): string {
-    switch (hint) {
-      case "addressCity":
-        return "addressLocality";
-      case "addressState":
-        return "addressRegion";
-      case "birthday":
-        return "birthDateFull";
-      case "birthdayDay":
-        return "birthDateDay";
-      case "birthdayMonth":
-        return "birthDateMonth";
-      case "birthdayYear":
-        return "birthDateYear";
-      case "countryName":
-        return "addressCountry";
-      case "creditCardExpirationDate":
-        return "creditCardExpirationDate";
-      case "creditCardExpirationDay":
-        return "creditCardExpirationDay";
-      case "creditCardExpirationMonth":
-        return "creditCardExpirationMonth";
-      case "creditCardExpirationYear":
-        return "creditCardExpirationYear";
-      case "creditCardNumber":
-        return "creditCardNumber";
-      case "creditCardSecurityCode":
-        return "creditCardSecurityCode";
-      case "email":
-        return "emailAddress";
-      case "familyName":
-        return "personFamilyName";
-      case "fullStreetAddress":
-        return "streetAddress";
-      case "gender":
-        return "gender";
-      case "givenName":
-        return "personGivenName";
-      case "middleInitial":
-        return "personMiddleInitial";
-      case "middleName":
-        return "personMiddleName";
-      case "name":
-        return "personName";
-      case "namePrefix":
-        return "personNamePrefix";
-      case "nameSuffix":
-        return "personNameSuffix";
-      case "newPassword":
-        return "newPassword";
-      case "newUsername":
-        return "newUsername";
-      case "oneTimeCode":
-        return "smsOTPCode";
-      case "password":
-        return "password";
-      case "postalAddress":
-        return "postalAddress";
-      case "postalAddressExtended":
-        return "extendedAddress";
-      case "postalAddressExtendedPostalCode":
-        return "extendedPostalCode";
-      case "postalCode":
-        return "postalCode";
-      case "telephoneNumber":
-        return "phoneNumber";
-      case "telephoneNumberCountryCode":
-        return "phoneCountryCode";
-      case "telephoneNumberDevice":
-        return "phoneNumberDevice";
-      case "telephoneNumberNational":
-        return "phoneNational";
-      case "username":
-        return "username";
-      default:
-        return hint;
-    }
-  }
-
-  constructor(
-    uniqueIdentifier: string,
-    hints: string[],
-    hintText: string | null,
-    editingState: TextEditState,
-  ) {
-    this.uniqueIdentifier = uniqueIdentifier;
-    this.hints = hints;
-    this.hintText = hintText;
-    this.editState = editingState;
-  }
-}
-
-export { Autofill };
