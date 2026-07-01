@@ -39,8 +39,7 @@ static PixelFormat ToPixelFormat(int32_t format) {
 }
 
 static TextureDescriptor CreateTextureDescriptorFromNativeWindowBuffer(
-    OHNativeWindowBuffer* native_window_buffer,
-    TextureColorSpace color_space) {
+    OHNativeWindowBuffer* native_window_buffer) {
   OH_NativeBuffer_Config nativebuffer_config;
   OH_NativeBuffer* native_buffer;
   TextureDescriptor descriptor;
@@ -57,7 +56,6 @@ static TextureDescriptor CreateTextureDescriptorFromNativeWindowBuffer(
       ISize{nativebuffer_config.width, nativebuffer_config.height};
   descriptor.storage_mode = StorageMode::kDevicePrivate;
   descriptor.type = TextureType::kTexture2D;
-  descriptor.color_space = color_space;
   descriptor.mip_count = 1;
   descriptor.sample_count = SampleCount::kCount1;
   descriptor.compression_type = CompressionType::kLossless;
@@ -219,10 +217,9 @@ static vk::UniqueImageView CreateVkImageView(
 
 OHBTextureSourceVK::OHBTextureSourceVK(
     const std::shared_ptr<ContextVK>& context,
-    OHNativeWindowBuffer* native_window_buffer,
-    TextureColorSpace color_space)
-    : TextureSourceVK(CreateTextureDescriptorFromNativeWindowBuffer(
-        native_window_buffer, color_space)) {
+    OHNativeWindowBuffer* native_window_buffer)
+    : TextureSourceVK(
+          CreateTextureDescriptorFromNativeWindowBuffer(native_window_buffer)) {
   is_valid_ = false;
   if (!native_window_buffer) {
     return;
@@ -258,7 +255,7 @@ OHBTextureSourceVK::OHBTextureSourceVK(
     return;
   }
 
-  auto device_memory = AllocateDeviceMemorty(context, image.get(),
+  auto device_memory = AllocateDeviceMemorty(context, image_.get(),
                                              native_buffer, onb_props.get());
   if (!device_memory) {
     FML_LOG(ERROR) << "allocateDeviceMemorty failed";
