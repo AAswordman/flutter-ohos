@@ -464,8 +464,6 @@ export default class TouchEventProcessor {
       screenY: mousePacket.screenY,
       x: mousePacket.x,
       y: mousePacket.y,
-      source: SourceType.Mouse,
-      sourceTool: SourceTool.MOUSE,
       stopPropagation: () => {},
       timestamp: mousePacket.timestamp,
       pressure: 0,
