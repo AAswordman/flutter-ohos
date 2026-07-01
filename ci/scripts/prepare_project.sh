@@ -23,17 +23,6 @@ prepare_project() {
         exit 1
     }
 
-    log_info "Fetching remote branches"
-    run_cmd "git fetch --all"
-    run_cmd "git branch -a"
-
-    log_info "Rebasing to $target_branch"
-    if ! run_cmd "git rebase remotes/gitcode/$target_branch"; then
-        log_error "Rebase failed!"
-        exit 1
-    fi
-
-    log_info "Git status after rebase"
     run_cmd "git log -10 --pretty=format:'%h - %s'"
     run_cmd "git status"
     run_cmd "git diff"

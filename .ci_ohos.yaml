@@ -120,7 +120,7 @@ preparation_steps:
   - name: Prepare Flutter
     script: ci/scripts/prepare_project.sh
     description: Prepare Flutter project and sync to target branch
-    args: ["flutter_flutter", "oh-3.41.9-dev"]
+    args: ["flutter_flutter", "oh-3.41.9-release"]
     required: true
 
   - name: Record Flutter Commit ID
@@ -140,7 +140,7 @@ compilation_steps:
   - name: Pack Flutter
     script: ci/scripts/pack_flutter.sh
     description: Pack Flutter SDK
-    args: ["oh-3.41.9-dev"]
+    args: ["oh-3.41.9-release"]
     required: true
 
   - name: Install dependencies
@@ -182,7 +182,7 @@ compilation_steps:
   - name: Check Build Mode
     script: ci/scripts/check_build_mode.sh
     description: Check Build Mode
-    args: ["flutter_flutter", "flutter_flutter/engine/src", "oh-3.41.9-dev", "flutter_flutter"]
+    args: ["flutter_flutter", "flutter_flutter/engine/src", "oh-3.41.9-release", "flutter_flutter"]
     required: true
 
   - name: Restoring Engine mTimes
@@ -212,7 +212,7 @@ compilation_steps:
   - name: Upload to cloud
     script: ci/scripts/upload_to_cloud.sh
     description: Upload build artifacts to cloud storage
-    args: ["oh-3.41.9-dev"]
+    args: ["oh-3.41.9-release"]
     required: true
 
   - name: Publish
