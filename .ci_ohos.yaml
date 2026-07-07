@@ -87,6 +87,14 @@ publish_files:
 
 # Preparation steps - executed in order
 preparation_steps:
+  - name: Prepare openharmony SDK
+    script: ci/scripts/prepare_openharmony_sdk.sh
+    description: Download openharmony sdk
+    args: 
+      - "https://flutter-ohos-test.obs.cn-south-1.myhuaweicloud.com/tools/sdk_openharmony.tar.gz"
+      - "3427ca8619edb6561c3c4e143a26c9fc41dfced8cd072667ca2fae8897b1cb67"
+    required: true
+
   - name: Check System Information
     script: ci/scripts/check_system_info.sh
     description: Verify system OS and user information
