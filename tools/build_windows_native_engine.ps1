@@ -33,7 +33,7 @@ try {
   }
   $stage = Join-Path $out "native-artifact/windows-x64-$Mode-$Version-$([guid]::NewGuid().ToString('N'))"
   New-Item -ItemType Directory -Force -Path $stage | Out-Null
-  foreach ($file in @('flutter_windows.dll','flutter_windows.dll.lib','flutter_windows.h', 'flutter_export.h','flutter_macros.h','flutter_messenger.h','flutter_plugin_registrar.h','flutter_texture_registrar.h','icudtl.dat','gen_snapshot.exe')) {
+  foreach ($file in @('flutter_windows.dll','flutter_windows.dll.exp','flutter_windows.dll.pdb','flutter_windows.dll.lib','flutter_windows.h', 'flutter_export.h','flutter_macros.h','flutter_messenger.h','flutter_plugin_registrar.h','flutter_texture_registrar.h','icudtl.dat','gen_snapshot.exe')) {
     $source = Join-Path $out $file
     if (!(Test-Path -LiteralPath $source)) { throw "Missing engine artifact: $source" }
     Copy-Item -LiteralPath $source -Destination $stage
