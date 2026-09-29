@@ -190,9 +190,10 @@ bool CompositorOpenGL::Present(FlutterWindowsView* view,
       gl_->BindFramebuffer(GL_READ_FRAMEBUFFER,
                            layer.backing_store->open_gl.framebuffer.name);
       gl_->BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-      // DXGI surfaces are top-down; the source GL framebuffer is bottom-up.
+      // ANGLE already maps the framebuffer origin to the D3D surface.
+      // Preserve the same blit orientation as the window-surface path.
       GetBlitFramebufferProc (*gl_)(0, 0, layer.size.width, layer.size.height,
-                                    0, layer.size.height, layer.size.width, 0,
+                                    0, 0, layer.size.width, layer.size.height,
                                     GL_COLOR_BUFFER_BIT, GL_NEAREST);
       gl_->Flush();
       const bool released = manager->render_context()->MakeCurrent();

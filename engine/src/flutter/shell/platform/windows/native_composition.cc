@@ -275,7 +275,9 @@ bool NativeComposition::Present(
     } else {
       return false;
     }
-    if (!CHECK_COM(frame->AddVisual(visual.Get(), TRUE, nullptr)))
+    // Flutter layers arrive back-to-front. With no reference visual, FALSE
+    // appends above existing siblings; TRUE would reverse the paint order.
+    if (!CHECK_COM(frame->AddVisual(visual.Get(), FALSE, nullptr)))
       return false;
   }
   if (!CHECK_COM(root_->RemoveAllVisuals()) ||

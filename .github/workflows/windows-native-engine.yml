@@ -1,8 +1,12 @@
 name: Windows Native Composition Engine
 on:
-  push:
-    tags:
-      - '*-operit.*'
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Verified release tag to build and publish'
+        required: true
+        type: string
+        default: '3.41.10-ohos-0.0.2-beta.operit.1'
 permissions:
   contents: write
 jobs:
@@ -17,6 +21,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: flutter
+          ref: ${{ inputs.release_tag }}
       - name: Install depot tools
         shell: pwsh
         run: |
@@ -38,11 +43,12 @@ jobs:
         working-directory: flutter
         shell: pwsh
         run: |
-          ./tools/build_windows_native_engine.ps1 -Mode '${{ matrix.mode }}' -Version '${{ github.ref_name }}' -RunTests:('${{ matrix.mode }}' -eq 'debug')
+          ./tools/build_windows_native_engine.ps1 -Mode '${{ matrix.mode }}' -Version '${{ inputs.release_tag }}' -RunTests:('${{ matrix.mode }}' -eq 'debug')
       - uses: actions/upload-artifact@v4
         with:
           name: windows-x64-${{ matrix.mode }}
-          path: flutter/engine/src/out/host_${{ matrix.mode }}/windows-x64-${{ matrix.mode }}.zip
+          path: flutter
+          ref: ${{ inputs.release_tag }}/engine/src/out/host_${{ matrix.mode }}/windows-x64-${{ matrix.mode }}.zip
           if-no-files-found: error
   publish:
     needs: build
@@ -56,7 +62,7 @@ jobs:
       - name: Publish matching Flutter and engine release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Flutter ${{ github.ref_name }} with Windows native composition
+          tag_name: ${{ inputs.release_tag }}
+          name: Flutter ${{ inputs.release_tag }} with Windows native composition
           generate_release_notes: true
           files: release-assets/*.zip

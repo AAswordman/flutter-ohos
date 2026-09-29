@@ -1,6 +1,7 @@
 // Copyright 2026 The Flutter Authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
+#include <dwmapi.h>
 #include <limits>
 #include "flutter/shell/platform/windows/native_composition.h"
 #include "gtest/gtest.h"
@@ -12,6 +13,8 @@ class NativeCompositionTest : public ::testing::Test {
   // Uses a hardware D3D device and real hidden Win32 target for composition
   // tests.
   void SetUp() override {
+    dpi_context_ = SetThreadDpiAwarenessContext(
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     com_result_ = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     ASSERT_TRUE(SUCCEEDED(com_result_) || com_result_ == RPC_E_CHANGED_MODE);
     ASSERT_TRUE(SUCCEEDED(
@@ -36,6 +39,7 @@ class NativeCompositionTest : public ::testing::Test {
     device_.Reset();
     if (SUCCEEDED(com_result_))
       CoUninitialize();
+    SetThreadDpiAwarenessContext(dpi_context_);
   }
   // Paints a Flutter backing surface with translucent red using its real GPU
   // target.
@@ -48,6 +52,7 @@ class NativeCompositionTest : public ::testing::Test {
     context_->Flush();
     return true;
   }
+  DPI_AWARENESS_CONTEXT dpi_context_ = nullptr;
   HRESULT com_result_ = E_FAIL;
   HWND window_ = nullptr;
   Microsoft::WRL::ComPtr<ID3D11Device> device_;
@@ -98,6 +103,96 @@ TEST_F(NativeCompositionTest, PresentsNativeBetweenFlutterLayersAcrossFrames) {
   EXPECT_TRUE(composition_->Present(nullptr, 0, draw));
   composition_->RemoveVisual(id);
   EXPECT_FALSE(composition_->SetScale(id, 1));
+}
+
+// Reads actual desktop pixels to verify paint order, alpha and layer removal.
+TEST_F(NativeCompositionTest, VisiblePixelsPreserveFlutterPaintOrder) {
+  ASSERT_TRUE(
+      SetWindowPos(window_, HWND_TOPMOST, 40, 40, 160, 160, SWP_SHOWWINDOW));
+  int64_t id;
+  Microsoft::WRL::ComPtr<IUnknown> native;
+  ASSERT_TRUE(composition_->CreateVisual(&id, &native));
+  Microsoft::WRL::ComPtr<IDCompositionVisual> native_visual;
+  ASSERT_TRUE(SUCCEEDED(native.As(&native_visual)));
+  Microsoft::WRL::ComPtr<IDXGIDevice> dxgi;
+  Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+  Microsoft::WRL::ComPtr<IDXGIFactory2> factory;
+  ASSERT_TRUE(SUCCEEDED(device_.As(&dxgi)));
+  ASSERT_TRUE(SUCCEEDED(dxgi->GetAdapter(&adapter)));
+  ASSERT_TRUE(SUCCEEDED(adapter->GetParent(IID_PPV_ARGS(&factory))));
+  DXGI_SWAP_CHAIN_DESC1 desc = {};
+  desc.Width = 128;
+  desc.Height = 128;
+  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  desc.SampleDesc.Count = 1;
+  desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+  desc.BufferCount = 2;
+  desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+  desc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+  Microsoft::WRL::ComPtr<IDXGISwapChain1> swap;
+  ASSERT_TRUE(SUCCEEDED(factory->CreateSwapChainForComposition(
+      device_.Get(), &desc, nullptr, &swap)));
+  Microsoft::WRL::ComPtr<ID3D11Texture2D> buffer;
+  Microsoft::WRL::ComPtr<ID3D11RenderTargetView> target;
+  ASSERT_TRUE(SUCCEEDED(swap->GetBuffer(0, IID_PPV_ARGS(&buffer))));
+  ASSERT_TRUE(SUCCEEDED(
+      device_->CreateRenderTargetView(buffer.Get(), nullptr, &target)));
+  const float green[] = {0, 1, 0, 1};
+  context_->ClearRenderTargetView(target.Get(), green);
+  context_->Flush();
+  ASSERT_TRUE(SUCCEEDED(swap->Present(0, 0)));
+  ASSERT_TRUE(SUCCEEDED(native_visual->SetContent(swap.Get())));
+  FlutterPlatformView platform = {sizeof(FlutterPlatformView), id, 0, nullptr};
+  FlutterLayer native_layer = {};
+  native_layer.struct_size = sizeof(native_layer);
+  native_layer.type = kFlutterLayerContentTypePlatformView;
+  native_layer.platform_view = &platform;
+  FlutterLayer base = {};
+  base.struct_size = sizeof(base);
+  base.type = kFlutterLayerContentTypeBackingStore;
+  base.size = {128, 128};
+  FlutterLayer overlay = base;
+  overlay.size = {128, 40};
+  const FlutterLayer* layers[] = {&base, &native_layer, &overlay};
+  auto draw = [this, &base](const FlutterLayer& layer,
+                            ID3D11Texture2D* texture) {
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtv;
+    if (FAILED(device_->CreateRenderTargetView(texture, nullptr, &rtv))) {
+      return false;
+    }
+    const float red[] = {1, 0, 0, 1};
+    const float blue[] = {0, 0, 0.5f, 0.5f};
+    context_->ClearRenderTargetView(rtv.Get(), &layer == &base ? red : blue);
+    context_->Flush();
+    return true;
+  };
+  // A DWM flush and message pump let committed visuals reach the desktop.
+  auto pixel = [this](int y) {
+    MSG message;
+    while (PeekMessage(&message, nullptr, 0, 0, PM_REMOVE)) {
+      TranslateMessage(&message);
+      DispatchMessage(&message);
+    }
+    DwmFlush();
+    Sleep(100);
+    DwmFlush();
+    POINT point = {60, y};
+    ClientToScreen(window_, &point);
+    HDC dc = GetDC(nullptr);
+    const COLORREF value = GetPixel(dc, point.x, point.y);
+    ReleaseDC(nullptr, dc);
+    return value;
+  };
+  ASSERT_TRUE(composition_->Present(layers, 3, draw));
+  const COLORREF top = pixel(20);
+  EXPECT_LE(GetRValue(top), 3);
+  EXPECT_NEAR(GetGValue(top), 127, 3);
+  EXPECT_NEAR(GetBValue(top), 128, 3);
+  EXPECT_EQ(pixel(65), RGB(0, 255, 0));
+  ASSERT_TRUE(composition_->Present(layers, 2, draw));
+  EXPECT_EQ(pixel(20), RGB(0, 255, 0));
+  ASSERT_TRUE(composition_->Present(layers, 1, draw));
+  EXPECT_EQ(pixel(20), RGB(255, 0, 0));
 }
 
 // Detached targets reject new visuals and frames while existing leases are
