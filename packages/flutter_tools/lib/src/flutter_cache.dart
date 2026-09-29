@@ -40,7 +40,7 @@ class FlutterCache extends Cache {
     registerArtifact(FlutterWebSdk(this));
     registerArtifact(FlutterEngineStamp(this, logger));
     registerArtifact(LegacyCanvasKitRemover(this));
-    registerArtifact(FlutterSdk(this, platform: platform));
+    registerArtifact(FlutterSdk(this));
     registerArtifact(FlutterSdkOhos(this, platform: platform));
     registerArtifact(WindowsEngineArtifacts(this, platform: platform));
     registerArtifact(MacOSEngineArtifacts(this, platform: platform));
@@ -248,19 +248,13 @@ class LegacyCanvasKitRemover extends ArtifactSet {
 
 /// A cached artifact containing the dart:ui source code.
 class FlutterSdk extends EngineCachedArtifact {
-  FlutterSdk(Cache cache, {required Platform platform})
-    : _platform = platform,
-      super('flutter_sdk', cache, DevelopmentArtifact.universal);
-
-  final Platform _platform;
+  FlutterSdk(Cache cache) : super('flutter_sdk', cache, DevelopmentArtifact.universal);
 
   @override
   List<String> getPackageDirs() => const <String>['sky_engine', 'flutter_gpu'];
 
   @override
   List<List<String>> getBinaryDirs() {
-    // Linux and Windows both support arm64 and x64.
-    final String arch = cache.getHostPlatformArchName();
     return <List<String>>[
       <String>['common', 'flutter_patched_sdk.zip'],
       <String>['common', 'flutter_patched_sdk_product.zip'],
@@ -272,14 +266,9 @@ class FlutterSdk extends EngineCachedArtifact {
 }
 
 class FlutterSdkOhos extends EngineCachedArtifact {
-  FlutterSdkOhos(Cache cache, {
-    required Platform platform,
-  }) : _platform = platform,
-      super(
-        'flutter_sdk_ohos',
-        cache,
-        DevelopmentArtifact.universal,
-      );
+  FlutterSdkOhos(Cache cache, {required Platform platform})
+    : _platform = platform,
+      super('flutter_sdk_ohos', cache, DevelopmentArtifact.universal);
 
   final Platform _platform;
 
@@ -307,7 +296,7 @@ class FlutterSdkOhos extends EngineCachedArtifact {
   @override
   List<String> getLicenseDirs() => const <String>[];
 
-    @override
+  @override
   String get storageBaseUrl => cache.ohosStorageBaseUrl;
 
   @override
@@ -338,26 +327,58 @@ class MacOSEngineArtifacts extends EngineCachedArtifact {
 
 /// Artifacts required for desktop Windows builds.
 class WindowsEngineArtifacts extends EngineCachedArtifact {
+  /// Selects desktop binaries published from this fork's native composition build.
   WindowsEngineArtifacts(Cache cache, {required Platform platform})
     : _platform = platform,
       super('windows-sdk', cache, DevelopmentArtifact.windows);
 
   final Platform _platform;
 
+  /// Uses an independent stamp so official desktop binaries cannot satisfy this cache.
+  @override
+  String get version => '3.41.10-ohos-0.0.2-beta.operit.1';
+
+  /// Desktop archives do not contain Dart packages.
   @override
   List<String> getPackageDirs() => const <String>[];
 
+  /// Maps each Windows runtime mode to the fork's release asset.
   @override
   List<List<String>> getBinaryDirs() {
     if (_platform.isWindows || ignorePlatformFiltering) {
       final String arch = cache.getHostPlatformArchName();
-      return _getWindowsDesktopBinaryDirs(arch);
+      return <List<String>>[
+        <String>['windows-$arch', 'windows-$arch-debug.zip'],
+        <String>['windows-$arch-profile', 'windows-$arch-profile.zip'],
+        <String>['windows-$arch-release', 'windows-$arch-release.zip'],
+      ];
     }
     return const <List<String>>[];
   }
 
+  /// Each published archive carries the engine license.
   @override
   List<String> getLicenseDirs() => const <String>[];
+
+  /// Downloads only the matching native-composition engine release.
+  @override
+  Future<void> updateInner(
+    ArtifactUpdater artifactUpdater,
+    FileSystem fileSystem,
+    OperatingSystemUtils operatingSystemUtils,
+  ) async {
+    final base = 'https://github.com/AAswordman/flutter-ohos/releases/download/$version/';
+    for (final List<String> binary in getBinaryDirs()) {
+      final Directory directory = fileSystem.directory(
+        fileSystem.path.join(location.path, binary[0]),
+      );
+      await artifactUpdater.downloadZipArchive(
+        'Downloading native composition ${binary[0]}...',
+        Uri.parse('$base${binary[1]}'),
+        directory,
+      );
+    }
+  }
 }
 
 /// Artifacts required for desktop Linux builds.
@@ -542,14 +563,9 @@ class IOSEngineArtifacts extends EngineCachedArtifact {
 
 /// The artifact used to generate snapshots for Ohos builds.
 class OHOSGenSnapshotArtifacts extends EngineCachedArtifact {
-  OHOSGenSnapshotArtifacts(Cache cache, {
-    required Platform platform,
-  }) : _platform = platform,
-        super(
-        'ohos-sdk',
-        cache,
-        DevelopmentArtifact.ohosGenSnapshot,
-      );
+  OHOSGenSnapshotArtifacts(Cache cache, {required Platform platform})
+    : _platform = platform,
+      super('ohos-sdk', cache, DevelopmentArtifact.ohosGenSnapshot);
 
   final Platform _platform;
 
@@ -563,7 +579,7 @@ class OHOSGenSnapshotArtifacts extends EngineCachedArtifact {
         ..._osxBinaryDirsForOhos,
         ..._linuxBinaryDirsForOhos,
         ..._windowsBinaryDirsForOhos,
-        ..._dartSdks
+        ..._dartSdks,
       ] else if (_platform.isWindows)
         ..._windowsBinaryDirsForOhos
       else if (_platform.isMacOS)
@@ -586,11 +602,8 @@ class OHOSGenSnapshotArtifacts extends EngineCachedArtifact {
 }
 
 class OHOSInternalBuildArtifacts extends EngineCachedArtifact {
-  OHOSInternalBuildArtifacts(Cache cache) : super(
-    'ohos-internal-build-artifacts',
-    cache,
-    DevelopmentArtifact.ohosInternalBuild,
-  );
+  OHOSInternalBuildArtifacts(Cache cache)
+    : super('ohos-internal-build-artifacts', cache, DevelopmentArtifact.ohosInternalBuild);
 
   @override
   List<String> getPackageDirs() => const <String>[];
@@ -944,15 +957,6 @@ class IosUsbArtifacts extends CachedArtifact {
 // TODO(zanderso): upload debug desktop artifacts to host-debug and
 // remove from existing host folder.
 // https://github.com/flutter/flutter/issues/38935
-
-List<List<String>> _getWindowsDesktopBinaryDirs(String arch) {
-  return <List<String>>[
-    <String>['windows-$arch', 'windows-$arch-debug/windows-$arch-flutter.zip'],
-    <String>['windows-$arch', 'windows-$arch/flutter-cpp-client-wrapper.zip'],
-    <String>['windows-$arch-profile', 'windows-$arch-profile/windows-$arch-flutter.zip'],
-    <String>['windows-$arch-release', 'windows-$arch-release/windows-$arch-flutter.zip'],
-  ];
-}
 
 const _macOSDesktopBinaryDirs = <List<String>>[
   <String>['darwin-x64', 'darwin-x64/framework.zip'],

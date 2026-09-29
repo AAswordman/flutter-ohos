@@ -243,11 +243,11 @@ optional("fontmgr_android") {
 }
 
 optional("fontmgr_ohos") {
-  enabled = skia_enable_fontmgr_ohos
+  enabled = is_ohos
   deps = [
     ":typeface_freetype",
     "//flutter/third_party/expat",
-    "//third_party/jsoncpp:jsoncpp",
+    "//third_party/jsoncpp",
   ]
   public = [
     "$_skia_root/src/ports/skia_ohos/FontConfig_ohos.h",

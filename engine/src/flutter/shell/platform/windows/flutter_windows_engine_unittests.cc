@@ -1384,6 +1384,24 @@ TEST_F(FlutterWindowsEngineTest, ChannelListenedTo) {
   }
 }
 
+// Public registration must preserve factories installed before engine startup.
+TEST_F(FlutterWindowsEngineTest, RegisterPlatformViewBeforeRun) {
+  FlutterWindowsEngineBuilder builder{GetContext()};
+  auto engine = builder.Build();
+  FlutterPlatformViewTypeEntry type = {};
+  type.struct_size = sizeof(type);
+  type.factory = [](const FlutterPlatformViewCreationParameters*) -> HWND {
+    return nullptr;
+  };
+  FlutterDesktopEngineRegisterPlatformViewType(
+      reinterpret_cast<FlutterDesktopEngineRef>(engine.get()), "test/native",
+      type);
+  ASSERT_NE(engine->platform_view_plugin(), nullptr);
+  EXPECT_TRUE(
+      engine->platform_view_plugin()->AddPlatformView(42, "test/native"));
+  EXPECT_TRUE(engine->platform_view_plugin()->DisposePlatformView(42));
+}
+
 TEST_F(FlutterWindowsEngineTest, ReceivePlatformViewMessage) {
   FlutterWindowsEngineBuilder builder{GetContext()};
   builder.SetDartEntrypoint("sendCreatePlatformViewMethod");

@@ -169,6 +169,15 @@ class FlutterWindowsEngine {
 
   TaskRunner* task_runner() { return task_runner_.get(); }
 
+  // Registers native view factories before or after the engine starts.
+  void RegisterPlatformViewType(std::string_view name,
+                                const FlutterPlatformViewTypeEntry& type);
+
+  // Exposes the native view registry to Windows composition.
+  PlatformViewPlugin* platform_view_plugin() {
+    return platform_view_plugin_.get();
+  }
+
   BinaryMessenger* messenger_wrapper() { return messenger_wrapper_.get(); }
 
   FlutterWindowsTextureRegistrar* texture_registrar() {

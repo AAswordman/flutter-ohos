@@ -4,20 +4,31 @@
 
 #include "flutter/shell/platform/windows/platform_view_manager.h"
 
+#include <optional>
+
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/standard_method_codec.h"
 
 namespace flutter {
-
 namespace {
 constexpr char kChannelName[] = "flutter/platform_views";
-constexpr char kCreateMethod[] = "create";
-constexpr char kFocusMethod[] = "focus";
-constexpr char kViewTypeParameter[] = "viewType";
-constexpr char kIdParameter[] = "id";
-constexpr char kDirectionParameter[] = "direction";
-constexpr char kFocusParameter[] = "focus";
+
+// Reads both integer representations emitted by StandardMessageCodec.
+std::optional<int64_t> ReadInteger(const EncodableMap& args, const char* key) {
+  const auto it = args.find(EncodableValue(key));
+  if (it == args.end()) {
+    return std::nullopt;
+  }
+  if (const auto value = std::get_if<int32_t>(&it->second)) {
+    return *value;
+  }
+  if (const auto value = std::get_if<int64_t>(&it->second)) {
+    return *value;
+  }
+  return std::nullopt;
+}
 }  // namespace
 
+// Validates channel messages before dispatching native view operations.
 PlatformViewManager::PlatformViewManager(BinaryMessenger* binary_messenger)
     : channel_(std::make_unique<MethodChannel<EncodableValue>>(
           binary_messenger,
@@ -26,59 +37,65 @@ PlatformViewManager::PlatformViewManager(BinaryMessenger* binary_messenger)
   channel_->SetMethodCallHandler(
       [this](const MethodCall<EncodableValue>& call,
              std::unique_ptr<MethodResult<EncodableValue>> result) {
-        const auto& args = std::get<EncodableMap>(*call.arguments());
-        if (call.method_name() == kCreateMethod) {
-          const auto& type_itr = args.find(EncodableValue(kViewTypeParameter));
-          const auto& id_itr = args.find(EncodableValue(kIdParameter));
-          if (type_itr == args.end()) {
-            result->Error("AddPlatformView", "Parameter viewType is required");
-            return;
-          }
-          if (id_itr == args.end()) {
-            result->Error("AddPlatformView", "Parameter id is required");
-            return;
-          }
-          const auto& type = std::get<std::string>(type_itr->second);
-          const auto& id = std::get<std::int32_t>(id_itr->second);
-          if (AddPlatformView(id, type)) {
-            result->Success();
-          } else {
-            result->Error("AddPlatformView", "Failed to add platform view");
-          }
-          return;
-        } else if (call.method_name() == kFocusMethod) {
-          const auto& id_itr = args.find(EncodableValue(kIdParameter));
-          const auto& direction_itr =
-              args.find(EncodableValue(kDirectionParameter));
-          const auto& focus_itr = args.find(EncodableValue(kFocusParameter));
-          if (id_itr == args.end()) {
-            result->Error("FocusPlatformView", "Parameter id is required");
-            return;
-          }
-          if (direction_itr == args.end()) {
-            result->Error("FocusPlatformView",
-                          "Parameter direction is required");
-            return;
-          }
-          if (focus_itr == args.end()) {
-            result->Error("FocusPlatformView", "Parameter focus is required");
-            return;
-          }
-          const auto& id = std::get<std::int32_t>(id_itr->second);
-          const auto& direction = std::get<std::int32_t>(direction_itr->second);
-          const auto& focus = std::get<bool>(focus_itr->second);
-          if (FocusPlatformView(
-                  id, static_cast<FocusChangeDirection>(direction), focus)) {
-            result->Success();
-          } else {
-            result->Error("FocusPlatformView", "Failed to focus platform view");
-          }
+        const auto& method = call.method_name();
+        if (method != "create" && method != "focus" && method != "dispose") {
+          result->NotImplemented();
           return;
         }
-        result->NotImplemented();
+        const auto args = call.arguments()
+                              ? std::get_if<EncodableMap>(call.arguments())
+                              : nullptr;
+        if (!args) {
+          result->Error("invalid_arguments", "Expected a parameter map");
+          return;
+        }
+        const auto id = ReadInteger(*args, "id");
+        if (!id || *id < 0) {
+          result->Error("invalid_arguments", "Expected a nonnegative view id");
+          return;
+        }
+        if (method == "create") {
+          const auto it = args->find(EncodableValue("viewType"));
+          const auto type = it == args->end()
+                                ? nullptr
+                                : std::get_if<std::string>(&it->second);
+          if (!type || type->empty()) {
+            result->Error("invalid_arguments", "Expected a nonempty viewType");
+            return;
+          }
+          if (!AddPlatformView(*id, *type)) {
+            result->Error("AddPlatformView",
+                          "Unknown type or duplicate view id");
+            return;
+          }
+        } else if (method == "dispose") {
+          if (!DisposePlatformView(*id)) {
+            result->Error("DisposePlatformView",
+                          "Failed to dispose platform view");
+            return;
+          }
+        } else {
+          const auto direction = ReadInteger(*args, "direction");
+          const auto it = args->find(EncodableValue("focus"));
+          const auto focus =
+              it == args->end() ? nullptr : std::get_if<bool>(&it->second);
+          if (!direction || *direction < 0 || *direction > 2 || !focus) {
+            result->Error("invalid_arguments", "Invalid focus or direction");
+            return;
+          }
+          if (!FocusPlatformView(
+                  *id, static_cast<FocusChangeDirection>(*direction), *focus)) {
+            result->Error("FocusPlatformView", "Failed to focus platform view");
+            return;
+          }
+        }
+        result->Success();
       });
 }
 
-PlatformViewManager::~PlatformViewManager() {}
+// Removes the channel callback before the manager storage is released.
+PlatformViewManager::~PlatformViewManager() {
+  channel_->SetMethodCallHandler(nullptr);
+}
 
 }  // namespace flutter

@@ -1280,6 +1280,17 @@ void main() {
     },
   );
 
+  testUsingContext('GitTagVersion preserves the Operit release suffix', () {
+    const String releaseVersion = '3.41.10-ohos-0.0.2-beta.operit.1';
+    const String revision = 'abcdef';
+    final GitTagVersion gitTagVersion = GitTagVersion.parse(
+      '$releaseVersion-1-g$revision',
+    );
+
+    expect(gitTagVersion.gitTag, releaseVersion);
+    expect(gitTagVersion.frameworkVersionFor(revision), releaseVersion);
+  });
+
   testUsingContext('GitTagVersion', () {
     const hash = 'abcdef';
     GitTagVersion gitTagVersion;

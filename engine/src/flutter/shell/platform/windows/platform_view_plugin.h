@@ -7,9 +7,12 @@
 
 #include "flutter/shell/platform/windows/platform_view_manager.h"
 
-#include <functional>
-#include <map>
+#include <memory>
+#include <mutex>
 #include <optional>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 namespace flutter {
 
@@ -35,12 +38,13 @@ class PlatformViewPlugin : public PlatformViewManager {
   // with RegisterPlatformViewType.
   bool AddPlatformView(PlatformViewId id, std::string_view type_name) override;
 
-  // Create a queued platform view instance after it has been added.
-  // id must correspond to an identifier that has already been added with
-  // AddPlatformView.
-  // This method will create the platform view within a task queued to the
-  // engine's TaskRunner, which will run on the UI thread.
-  void InstantiatePlatformView(PlatformViewId id);
+  // Creates a registered child window on the platform thread. The parent is
+  // the Flutter view that owns this instance. The plugin owns the child HWND.
+  bool InstantiatePlatformView(PlatformViewId id, HWND parent_window);
+
+  // Destroys an instance or cancels its pending creation on the platform
+  // thread.
+  bool DisposePlatformView(PlatformViewId id) override;
 
   // | PlatformViewManager |
   // id must correspond to an identifier that has already been added with
@@ -55,8 +59,14 @@ class PlatformViewPlugin : public PlatformViewManager {
 
   std::unordered_map<PlatformViewId, HWND> platform_views_;
 
-  std::unordered_map<PlatformViewId, std::function<HWND()>>
+  std::unordered_map<PlatformViewId, std::shared_ptr<std::string>>
       pending_platform_views_;
+
+  // Prevents recursive factory invocation while a creation callback is active.
+  std::unordered_set<PlatformViewId> creating_platform_views_;
+
+  // Protects native handle snapshots read by the raster thread.
+  mutable std::mutex views_mutex_;
 
   // Pointer to the task runner of the associated engine.
   TaskRunner* task_runner_;

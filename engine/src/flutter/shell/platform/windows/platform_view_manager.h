@@ -36,6 +36,9 @@ class PlatformViewManager {
   virtual bool AddPlatformView(PlatformViewId id,
                                std::string_view type_name) = 0;
 
+  // Disposes a live native view or cancels its pending creation.
+  virtual bool DisposePlatformView(PlatformViewId id) = 0;
+
   // The framework may invoke this method when keyboard focus must be given to
   // the platform view. The manager will invoke Success when this method returns
   // true, and invoke Error otherwise.

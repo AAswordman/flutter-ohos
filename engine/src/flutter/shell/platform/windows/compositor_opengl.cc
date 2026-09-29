@@ -125,6 +125,93 @@ bool CompositorOpenGL::Present(FlutterWindowsView* view,
                                size_t layers_count) {
   FML_DCHECK(view != nullptr);
 
+  if (auto composition = view->native_composition()) {
+    static std::atomic<bool> logged_native_frame = false;
+    if (!logged_native_frame.exchange(true)) {
+      FML_LOG(INFO) << "Presenting native composition frame with "
+                    << layers_count << " layers";
+    }
+    if (!is_initialized_ && !Initialize()) {
+      FML_LOG(ERROR) << "Native composition could not initialize OpenGL";
+      return false;
+    }
+    // Backing stores are full Flutter view surfaces; use the base surface to
+    // participate in the existing resize handshake before presenting slices.
+    if (layers_count == 0) {
+      if (!view->OnEmptyFrameGenerated()) {
+        FML_LOG(ERROR) << "Native composition empty-frame resize failed";
+        return false;
+      }
+    } else {
+      const FlutterLayer* base = nullptr;
+      for (size_t i = 0; i < layers_count; ++i) {
+        if (layers[i]->type == kFlutterLayerContentTypeBackingStore) {
+          base = layers[i];
+          break;
+        }
+      }
+      if (base &&
+          !view->OnFrameGenerated(base->size.width, base->size.height)) {
+        FML_LOG(ERROR) << "Native composition frame resize failed for "
+                       << base->size.width << "x" << base->size.height;
+        return false;
+      }
+      if (!base && !view->OnEmptyFrameGenerated()) {
+        FML_LOG(ERROR)
+            << "Native composition platform-only frame resize failed";
+        return false;
+      }
+    }
+    auto draw = [this](const FlutterLayer& layer, ID3D11Texture2D* buffer) {
+      auto* manager = engine_->egl_manager();
+      const EGLint attributes[] = {
+          EGL_WIDTH, static_cast<EGLint>(layer.size.width), EGL_HEIGHT,
+          static_cast<EGLint>(layer.size.height), EGL_NONE};
+      EGLSurface surface = manager->CreateSurfaceFromHandle(
+          EGL_D3D_TEXTURE_ANGLE, buffer, attributes);
+      if (surface == EGL_NO_SURFACE) {
+        FML_LOG(ERROR) << "Native composition EGL pbuffer creation failed: "
+                       << eglGetError();
+        return false;
+      }
+      const bool bound =
+          eglMakeCurrent(manager->egl_display(), surface, surface,
+                         manager->render_context()->GetHandle()) == EGL_TRUE;
+      if (!bound) {
+        FML_LOG(ERROR) << "Native composition EGL pbuffer bind failed: "
+                       << eglGetError();
+        eglDestroySurface(manager->egl_display(), surface);
+        return false;
+      }
+      FML_CHECK(layer.backing_store->type == kFlutterBackingStoreTypeOpenGL);
+      FML_CHECK(layer.backing_store->open_gl.type ==
+                kFlutterOpenGLTargetTypeFramebuffer);
+      gl_->Disable(GL_SCISSOR_TEST);
+      gl_->BindFramebuffer(GL_READ_FRAMEBUFFER,
+                           layer.backing_store->open_gl.framebuffer.name);
+      gl_->BindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+      // DXGI surfaces are top-down; the source GL framebuffer is bottom-up.
+      GetBlitFramebufferProc (*gl_)(0, 0, layer.size.width, layer.size.height,
+                                    0, layer.size.height, layer.size.width, 0,
+                                    GL_COLOR_BUFFER_BIT, GL_NEAREST);
+      gl_->Flush();
+      const bool released = manager->render_context()->MakeCurrent();
+      const bool destroyed =
+          eglDestroySurface(manager->egl_display(), surface) == EGL_TRUE;
+      if (!released || !destroyed) {
+        FML_LOG(ERROR) << "Native composition EGL pbuffer release failed";
+        return false;
+      }
+      return true;
+    };
+    if (!composition->Present(layers, layers_count, draw)) {
+      FML_LOG(ERROR) << "Native composition visual tree submission failed";
+      return false;
+    }
+    view->OnFramePresented();
+    return true;
+  }
+
   // Clear the view if there are no layers to present.
   if (layers_count == 0) {
     // Normally the compositor is initialized when the first backing store is
@@ -137,8 +224,7 @@ bool CompositorOpenGL::Present(FlutterWindowsView* view,
     return Clear(view);
   }
 
-  // TODO: Support compositing layers and platform views.
-  // See: https://github.com/flutter/flutter/issues/31713
+  // Views without native content retain their single-surface presentation path.
   FML_DCHECK(is_initialized_);
   FML_DCHECK(layers_count == 1);
   FML_DCHECK(layers[0]->offset.x == 0 && layers[0]->offset.y == 0);

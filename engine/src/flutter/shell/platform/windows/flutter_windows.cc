@@ -26,6 +26,14 @@
 #include "flutter/shell/platform/windows/window_binding_handler.h"
 #include "flutter/shell/platform/windows/window_state.h"
 
+// Keeps compositor resources alive independently of plugin/Flutter view
+// teardown.
+struct FlutterDesktopNativeComposition {
+  std::shared_ptr<flutter::NativeComposition> owner;
+  Microsoft::WRL::ComPtr<IUnknown> visual;
+  int64_t id;
+};
+
 static_assert(FLUTTER_ENGINE_VERSION == 1, "");
 
 // Returns the engine corresponding to the given opaque API handle.
@@ -286,12 +294,57 @@ bool FlutterDesktopEngineProcessExternalWindowMessage(
   return lresult.has_value();
 }
 
+// Creates one plugin-owned native visual lease on the view's platform thread.
+FlutterDesktopNativeCompositionRef FlutterDesktopViewCreateNativeComposition(
+    FlutterDesktopViewRef view) {
+  if (!view)
+    return nullptr;
+  auto owner = ViewFromHandle(view)->EnableNativeComposition();
+  if (!owner)
+    return nullptr;
+  auto lease = std::make_unique<FlutterDesktopNativeComposition>();
+  lease->owner = std::move(owner);
+  if (!lease->owner->CreateVisual(&lease->id, &lease->visual))
+    return nullptr;
+  return lease.release();
+}
+
+// Exposes the stable native layer identifier to the plugin's Dart component.
+int64_t FlutterDesktopNativeCompositionGetId(
+    FlutterDesktopNativeCompositionRef lease) {
+  return lease->id;
+}
+
+// Exposes the retained native visual for WebView2 composition.
+IUnknown* FlutterDesktopNativeCompositionGetVisual(
+    FlutterDesktopNativeCompositionRef lease) {
+  return lease->visual.Get();
+}
+
+// Updates native pixel scaling without changing Flutter's layout coordinates.
+bool FlutterDesktopNativeCompositionSetScale(
+    FlutterDesktopNativeCompositionRef lease,
+    double scale) {
+  return lease->owner->SetScale(lease->id, scale);
+}
+
+// Detaches native content before the plugin releases its WebView2 controller.
+void FlutterDesktopNativeCompositionDestroy(
+    FlutterDesktopNativeCompositionRef lease) {
+  if (!lease)
+    return;
+  lease->owner->RemoveVisual(lease->id);
+  delete lease;
+}
+
 void FlutterDesktopEngineRegisterPlatformViewType(
     FlutterDesktopEngineRef engine,
     const char* view_type_name,
     FlutterPlatformViewTypeEntry view_type) {
-  // TODO(schectman): forward to platform view manager.
-  // https://github.com/flutter/flutter/issues/143375
+  if (engine == nullptr || view_type_name == nullptr) {
+    return;
+  }
+  EngineFromHandle(engine)->RegisterPlatformViewType(view_type_name, view_type);
 }
 
 FlutterDesktopViewRef FlutterDesktopPluginRegistrarGetView(

@@ -28,6 +28,39 @@ typedef struct FlutterDesktopViewController* FlutterDesktopViewControllerRef;
 struct FlutterDesktopView;
 typedef struct FlutterDesktopView* FlutterDesktopViewRef;
 
+// Native composition ABI version provided by this Flutter fork.
+#define FLUTTER_WINDOWS_NATIVE_COMPOSITION_VERSION 1
+
+// An owned lease for native content in the Flutter view's composition tree.
+struct FlutterDesktopNativeComposition;
+typedef struct FlutterDesktopNativeComposition*
+    FlutterDesktopNativeCompositionRef;
+
+// Creates a native visual on the platform thread. Returns null on failure.
+FLUTTER_EXPORT FlutterDesktopNativeCompositionRef
+FlutterDesktopViewCreateNativeComposition(FlutterDesktopViewRef view);
+
+// Returns the ID to paint with SceneBuilder.addPlatformView.
+FLUTTER_EXPORT int64_t FlutterDesktopNativeCompositionGetId(
+    FlutterDesktopNativeCompositionRef composition);
+
+// Returns a borrowed IDCompositionVisual as IUnknown, valid for the lease
+// lifetime. Pass this visual to WebView2's
+// ICoreWebView2CompositionController::RootVisualTarget.
+FLUTTER_EXPORT IUnknown* FlutterDesktopNativeCompositionGetVisual(
+    FlutterDesktopNativeCompositionRef composition);
+
+// Sets native pixels per logical pixel. Call when the browser bounds/DPI
+// change.
+FLUTTER_EXPORT bool FlutterDesktopNativeCompositionSetScale(
+    FlutterDesktopNativeCompositionRef composition,
+    double scale);
+
+// Removes the visual and releases the lease. Safe after its Flutter view
+// closes.
+FLUTTER_EXPORT void FlutterDesktopNativeCompositionDestroy(
+    FlutterDesktopNativeCompositionRef composition);
+
 // Opaque reference to a Flutter engine instance.
 struct FlutterDesktopEngine;
 typedef struct FlutterDesktopEngine* FlutterDesktopEngineRef;

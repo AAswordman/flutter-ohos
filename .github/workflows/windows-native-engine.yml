@@ -1,0 +1,62 @@
+name: Windows Native Composition Engine
+on:
+  push:
+    tags:
+      - '*-operit.*'
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [debug, profile, release]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: flutter
+      - name: Install depot tools
+        shell: pwsh
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$env:RUNNER_TEMP/depot_tools"
+          "$env:RUNNER_TEMP/depot_tools" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - name: Synchronize engine dependencies
+        working-directory: flutter
+        shell: pwsh
+        env:
+          DEPOT_TOOLS_WIN_TOOLCHAIN: '0'
+          GYP_MSVS_VERSION: '2022'
+        run: |
+          git config --global core.longpaths true
+          Copy-Item engine/scripts/standard.gclient .gclient
+          (Get-Content .gclient -Raw).Replace('https://github.com/flutter/flutter.git', 'https://github.com/AAswordman/flutter-ohos.git') | Set-Content .gclient
+          gclient sync --no-history
+          if ($LASTEXITCODE) { throw 'Dependency synchronization failed.' }
+      - name: Build and test native engine
+        working-directory: flutter
+        shell: pwsh
+        run: |
+          ./tools/build_windows_native_engine.ps1 -Mode '${{ matrix.mode }}' -Version '${{ github.ref_name }}' -RunTests:('${{ matrix.mode }}' -eq 'debug')
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64-${{ matrix.mode }}
+          path: flutter/engine/src/out/host_${{ matrix.mode }}/windows-x64-${{ matrix.mode }}.zip
+          if-no-files-found: error
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: windows-x64-*
+          path: release-assets
+          merge-multiple: true
+      - name: Publish matching Flutter and engine release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Flutter ${{ github.ref_name }} with Windows native composition
+          generate_release_notes: true
+          files: release-assets/*.zip

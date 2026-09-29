@@ -108,6 +108,8 @@ source_set("flutter_windows_source") {
     "keyboard_manager.h",
     "keyboard_utils.cc",
     "keyboard_utils.h",
+    "native_composition.cc",
+    "native_composition.h",
     "platform_handler.cc",
     "platform_handler.h",
     "platform_view_manager.cc",
@@ -147,6 +149,9 @@ source_set("flutter_windows_source") {
 
   libs = [
     "dwmapi.lib",
+    "dcomp.lib",
+    "d3d11.lib",
+    "dxgi.lib",
     "imm32.lib",
   ]
 
@@ -230,7 +235,9 @@ executable("flutter_windows_unittests") {
     "keyboard_key_handler_unittests.cc",
     "keyboard_unittests.cc",
     "keyboard_utils_unittests.cc",
+    "native_composition_unittests.cc",
     "platform_handler_unittests.cc",
+    "platform_view_plugin_unittests.cc",
     "sequential_id_generator_unittests.cc",
     "settings_plugin_unittests.cc",
     "system_utils_unittests.cc",

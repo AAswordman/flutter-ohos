@@ -252,6 +252,9 @@ FlutterWindowsEngine::FlutterWindowsEngine(
 }
 
 FlutterWindowsEngine::~FlutterWindowsEngine() {
+  // Unregister the channel and release native views while the messenger and
+  // plugin factory owners are still alive.
+  platform_view_plugin_.reset();
   messenger_->SetEngine(nullptr);
   Stop();
 }
@@ -1107,6 +1110,22 @@ void FlutterWindowsEngine::OnViewFocusChangeRequest(
 
   FlutterWindowsView* view = iterator->second;
   view->Focus();
+}
+
+// Creates the registry on the platform thread and retains pre-start factories.
+void FlutterWindowsEngine::RegisterPlatformViewType(
+    std::string_view name,
+    const FlutterPlatformViewTypeEntry& type) {
+  if (!task_runner_->RunsTasksOnCurrentThread()) {
+    FML_LOG(ERROR)
+        << "Platform view registration requires the platform thread.";
+    return;
+  }
+  if (!platform_view_plugin_) {
+    platform_view_plugin_ = std::make_unique<PlatformViewPlugin>(
+        messenger_wrapper_.get(), task_runner_.get());
+  }
+  platform_view_plugin_->RegisterPlatformViewType(name, type);
 }
 
 bool FlutterWindowsEngine::Present(const FlutterPresentViewInfo* info) {

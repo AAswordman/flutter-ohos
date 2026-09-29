@@ -119,6 +119,9 @@ FlutterWindowsView::FlutterWindowsView(
 }
 
 FlutterWindowsView::~FlutterWindowsView() {
+  if (auto composition = native_composition()) {
+    composition->Detach();
+  }
   // The view owns the child window.
   // Notify the engine the view's child window will no longer be visible.
   engine_->OnWindowStateEvent(GetWindowHandle(), WindowStateEvent::kHide);
@@ -126,6 +129,31 @@ FlutterWindowsView::~FlutterWindowsView() {
   if (surface_) {
     DestroyWindowSurface(*engine_, std::move(surface_));
   }
+}
+
+// Takes a thread-safe reference for a raster frame or a plugin lease.
+std::shared_ptr<NativeComposition> FlutterWindowsView::native_composition()
+    const {
+  std::scoped_lock lock(composition_mutex_);
+  return native_composition_;
+}
+
+// Enables native visual composition permanently for this Flutter view.
+std::shared_ptr<NativeComposition>
+FlutterWindowsView::EnableNativeComposition() {
+  if (!engine_->task_runner()->RunsTasksOnCurrentThread() ||
+      !engine_->egl_manager()) {
+    return nullptr;
+  }
+  std::scoped_lock lock(composition_mutex_);
+  if (!native_composition_) {
+    Microsoft::WRL::ComPtr<ID3D11Device> device;
+    if (!engine_->egl_manager()->GetDevice(&device))
+      return nullptr;
+    native_composition_ =
+        NativeComposition::Create(GetWindowHandle(), device.Get());
+  }
+  return native_composition_;
 }
 
 bool FlutterWindowsView::OnEmptyFrameGenerated() {

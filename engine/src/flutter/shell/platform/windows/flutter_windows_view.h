@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+#include "flutter/shell/platform/windows/native_composition.h"
 
 #include "flutter/fml/macros.h"
 #include "flutter/shell/geometry/geometry.h"
@@ -74,6 +75,13 @@ class FlutterWindowsView : public WindowBindingHandlerDelegate {
 
   // Return the currently configured HWND.
   virtual HWND GetWindowHandle() const;
+
+  // Returns the compositor selected by native plugins for this view.
+  std::shared_ptr<NativeComposition> native_composition() const;
+
+  // Creates the native compositor on the platform thread using the ANGLE
+  // device.
+  std::shared_ptr<NativeComposition> EnableNativeComposition();
 
   // Returns the engine backing this view.
   FlutterWindowsEngine* GetEngine() const;
@@ -427,6 +435,8 @@ class FlutterWindowsView : public WindowBindingHandlerDelegate {
   // Null if using software rasterization, the surface hasn't been created yet,
   // or if surface creation failed.
   std::unique_ptr<egl::WindowSurface> surface_ = nullptr;
+  mutable std::mutex composition_mutex_;
+  std::shared_ptr<NativeComposition> native_composition_;
 
   // Keeps track of pointer states in relation to the window.
   std::unordered_map<int32_t, std::unique_ptr<PointerState>> pointer_states_;
