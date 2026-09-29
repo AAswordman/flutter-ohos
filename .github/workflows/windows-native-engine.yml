@@ -18,7 +18,7 @@ jobs:
       matrix:
         mode: [debug, profile, release]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: flutter
           ref: ${{ inputs.release_tag }}
@@ -44,7 +44,7 @@ jobs:
         shell: pwsh
         run: |
           ./tools/build_windows_native_engine.ps1 -Mode '${{ matrix.mode }}' -Version '${{ inputs.release_tag }}' -RunTests:('${{ matrix.mode }}' -eq 'debug')
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-x64-${{ matrix.mode }}
           path: flutter
@@ -54,13 +54,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: windows-x64-*
           path: release-assets
           merge-multiple: true
       - name: Publish matching Flutter and engine release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.release_tag }}
           name: Flutter ${{ inputs.release_tag }} with Windows native composition
