@@ -4,6 +4,7 @@
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/src/services/raw_keyboard_ohos.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -43,6 +44,22 @@ Future<void> _shouldThrow<T extends Error>(AsyncValueGetter<void> func) async {
     hasError = true;
   } finally {
     expect(hasError, true);
+  }
+}
+
+Future<void> _shouldDebugPrint(AsyncValueGetter<void> func, String containsString) async {
+  final printedMessages = <String>[];
+  final DebugPrintCallback oldDebugPrint = debugPrint;
+  debugPrint = (String? message, {int? wrapWidth}) {
+    printedMessages.add(message ?? '');
+  };
+
+  try {
+    await func();
+  } finally {
+    expect(printedMessages, isNotEmpty);
+    expect(printedMessages.join('\n'), contains(containsString));
+    debugPrint = oldDebugPrint;
   }
 }
 
@@ -551,15 +568,19 @@ void main() {
     );
     events.clear();
 
+    // Enable irregular key event warning.
+    debugPrintKeyboardEvents = true;
     // A (physical keyA, logical keyB) is released.
     //
-    // Since this event is transmitted to HardwareKeyboard as-is, it will be rejected due to
-    // inconsistent logical key. This does not indicate behavioral difference,
-    // since KeyData is will never send malformed data sequence in real applications.
-    await _shouldThrow<AssertionError>(
-      () => simulateKeyUpEvent(LogicalKeyboardKey.keyB, physicalKey: PhysicalKeyboardKey.keyA),
-    );
+    // Since this event is transmitted to HardwareKeyboard as-is, it will
+    // trigger irregular key event warning due to inconsistent logical key. This
+    // does not indicate behavioral difference, since KeyData will never send
+    // malformed data sequence in real applications.
+    await _shouldDebugPrint(() {
+      return simulateKeyUpEvent(LogicalKeyboardKey.keyB, physicalKey: PhysicalKeyboardKey.keyA);
+    }, 'Received unexpected KeyUpEvent for key with mismatched logical key:');
 
+    debugPrintKeyboardEvents = false;
     debugKeyEventSimulatorTransitModeOverride = null;
   });
 
