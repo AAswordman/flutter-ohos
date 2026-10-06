@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — Web engine context-loss fix
+
+- Backport the nullable context-loss completer fix from Flutter PR #185116
+  (issues #184683 and #190192) to CanvasKit and Skwasm. Real browser WebGL
+  context loss must recover without throwing `LateInitializationError`.
+- Add regression coverage for synchronous context loss during surface creation
+  and repeated browser context-loss events without the test-only completer.
+- **Release action required:** rebuild and republish the Flutter Web SDK release
+  assets, including the precompiled dart2js/dart2wasm platform kernels. A
+  source-only update or reuse of the old Web SDK archives does not deliver this
+  fix. Publish a new matching SDK/engine release, then update consuming SDK
+  pins and rebuild/redeploy the Web applications. Keep GPU rendering enabled;
+  no software-rendering workaround is needed for this fix.
+
 ## 3.41.9-ohos-1.0.0
 
 - 分栏功能中，当栈顶是弹窗时，不要拦截pop函数,([08b3b8efd85](https://gitcode.com/CPF-Flutter/flutter_flutter/commit/08b3b8efd85ea8dd17a0e244cf3725734e16d43d))

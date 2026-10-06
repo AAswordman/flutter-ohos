@@ -108,7 +108,83 @@ void testMain() {
       },
       skip: isFirefox || isSafari || !browserSupportsOffscreenCanvas,
     );
+
+    test(
+      'synchronous context loss during surface creation',
+      () async {
+        final Rasterizer rasterizer = renderer.rasterizer;
+        final surfaceProvider = rasterizer.surfaceProvider as OffscreenSurfaceProvider;
+        final mockCanvasProvider = MockOffscreenCanvasProvider();
+        mockCanvasProvider.shouldTriggerContextLost = true;
+
+        final Surface surface = surfaceProvider.surfaceCreateFn(mockCanvasProvider);
+        addTearDown(() {
+          surface.dispose();
+          mockCanvasProvider.dispose();
+        });
+        await surface.initialized;
+      },
+      skip: isFirefox || isSafari || !browserSupportsOffscreenCanvas,
+    );
+
+    test(
+      'browser context loss recovers without initializing the test completer',
+      () async {
+        final Rasterizer rasterizer = renderer.rasterizer;
+        final surfaceProvider = rasterizer.surfaceProvider as OffscreenSurfaceProvider;
+        final canvasProvider = MockOffscreenCanvasProvider();
+        final OffscreenSurface surface = surfaceProvider.surfaceCreateFn(canvasProvider);
+        addTearDown(() {
+          surface.dispose();
+          canvasProvider.dispose();
+        });
+        await surface.initialized;
+        await surface.setSize(const BitmapSize(10, 10));
+
+        final ui.Picture picture = drawPicture((ui.Canvas canvas) {
+          canvas.drawRect(
+            const ui.Rect.fromLTWH(0, 0, 10, 10),
+            ui.Paint()..color = const ui.Color(0xFF0000FF),
+          );
+        });
+        addTearDown(picture.dispose);
+
+        // Exercise the browser listener, not triggerContextLoss(), which assigns
+        // _handledContextLostEvent and therefore masks the production bug.
+        // Repeating the event also checks that replacement canvases recover.
+        for (var loss = 0; loss < 2; loss++) {
+          final int previousGlContext = surface.glContext;
+          canvasProvider.lastCanvas.dispatchEvent(createDomEvent('Event', 'webglcontextlost'));
+          await surface.initialized;
+          expect(surface.glContext, isNot(previousGlContext));
+
+          final List<DomImageBitmap> bitmaps = await surface.rasterizeToImageBitmaps(<ui.Picture>[
+            picture,
+          ]);
+          expect(bitmaps, hasLength(1));
+          await expectBitmapColor(bitmaps.single, const ui.Color(0xFF0000FF));
+          bitmaps.single.close();
+        }
+      },
+      skip: isFirefox || isSafari || !browserSupportsOffscreenCanvas,
+    );
   });
+}
+
+class MockOffscreenCanvasProvider extends OffscreenCanvasProvider {
+  bool shouldTriggerContextLost = false;
+  late DomOffscreenCanvas lastCanvas;
+
+  @override
+  DomOffscreenCanvas acquireCanvas(BitmapSize size, {required ui.VoidCallback onContextLost}) {
+    final DomOffscreenCanvas canvas = super.acquireCanvas(size, onContextLost: onContextLost);
+    lastCanvas = canvas;
+    if (shouldTriggerContextLost) {
+      shouldTriggerContextLost = false;
+      onContextLost();
+    }
+    return canvas;
+  }
 }
 
 ui.Picture drawPicture(void Function(ui.Canvas) drawCommands) {
