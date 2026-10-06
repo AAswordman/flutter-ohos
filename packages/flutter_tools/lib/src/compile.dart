@@ -15,13 +15,11 @@ import 'base/common.dart';
 import 'base/file_system.dart';
 import 'base/io.dart';
 import 'base/logger.dart';
-import 'base/os.dart';
 import 'base/platform.dart';
 import 'base/process.dart';
 import 'base/utils.dart';
 import 'build_info.dart';
 import 'convert.dart';
-import 'globals.dart' as globals;
 
 /// Opt-in changes to the dart compilers.
 const kDartCompilerExperiments = <String>[];
@@ -261,6 +259,7 @@ class KernelCompiler {
     String? platformDill,
     Directory? buildDir,
     String? targetOS,
+    TargetPlatform? targetPlatform,
     bool checkDartPluginRegistry = false,
     required String? packagesPath,
     required BuildMode buildMode,
@@ -271,7 +270,7 @@ class KernelCompiler {
   }) async {
     final TargetPlatform? platform = targetModel == TargetModel.dartdevc
         ? TargetPlatform.web_javascript
-        : null;
+        : targetPlatform;
     // This is a URI, not a file path, so the forward slash is correct even on Windows.
     if (!sdkRoot.endsWith('/')) {
       sdkRoot = '$sdkRoot/';
@@ -318,6 +317,7 @@ class KernelCompiler {
       final String engineDartPath = _artifacts.getArtifactPath(
         Artifact.engineDartBinary,
         platform: platform,
+        mode: targetPlatform == null ? null : buildMode,
       );
       if (!_processManager.canRun(engineDartPath)) {
         throwToolExit('Unable to find Dart binary at $engineDartPath');
@@ -327,6 +327,7 @@ class KernelCompiler {
       final String engineDartAotRuntimePath = _artifacts.getArtifactPath(
         Artifact.engineDartAotRuntime,
         platform: platform,
+        mode: targetPlatform == null ? null : buildMode,
       );
       if (!_processManager.canRun(engineDartAotRuntimePath)) {
         throwToolExit('Unable to find dartaotruntime binary at $engineDartAotRuntimePath');
@@ -336,6 +337,7 @@ class KernelCompiler {
         _artifacts.getArtifactPath(
           Artifact.frontendServerSnapshotForEngineDartSdk,
           platform: platform,
+          mode: targetPlatform == null ? null : buildMode,
         ),
       ];
     }

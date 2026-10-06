@@ -15,7 +15,6 @@ import 'base/utils.dart';
 import 'build_info.dart';
 import 'cache.dart';
 import 'globals.dart' as globals;
-import 'reporting/reporting.dart';
 
 //////////////////////////////////////////////////////////////////////
 //                                                                  //
@@ -245,8 +244,6 @@ String? _artifactToFileName(Artifact artifact, Platform hostPlatform, [BuildMode
       return 'const_finder.dart.snapshot';
     case Artifact.flutterEngineHar:
       return 'flutter.har';
-    case Artifact.engineDartBinary:
-      return 'dart$exe';
     case Artifact.flutterToolsFileGenerators:
       return '';
   }
@@ -542,7 +539,11 @@ class CachedArtifacts implements Artifacts {
       case TargetPlatform.ohos_arm:
       case TargetPlatform.ohos_arm64:
       case TargetPlatform.ohos_x64:
-        return _getOhosArtifactPath(artifact, platform ?? _currentHostPlatform(_platform, _operatingSystemUtils), mode!);
+        return _getOhosArtifactPath(
+          artifact,
+          platform ?? _currentHostPlatform(_platform, _operatingSystemUtils),
+          mode!,
+        );
       case TargetPlatform.tester:
       case TargetPlatform.web_javascript:
       case null:
@@ -574,15 +575,19 @@ class CachedArtifacts implements Artifacts {
       case Artifact.engineDartBinary:
       case Artifact.engineDartAotRuntime:
       case Artifact.frontendServerSnapshotForEngineDartSdk:
-      case Artifact.constFinder:
-      case Artifact.flutterFramework:
-      case Artifact.flutterFrameworkDsym:
+        return _getDesktopCompilerArtifactPath(artifact, platform, mode);
+      case Artifact.flutterPatchedSdkPath:
+      case Artifact.platformKernelDill:
+      case Artifact.platformLibrariesJson:
+        return _getDesktopCompilerArtifactPath(artifact, platform, mode);
       case Artifact.flutterMacOSFramework:
         return _getMacOSFrameworkPath(engineDir, _fileSystem, _platform);
       case Artifact.flutterMacOSFrameworkDsym:
         return _getMacOSFrameworkDsymPath(engineDir, _fileSystem, _platform);
+      case Artifact.constFinder:
+      case Artifact.flutterFramework:
+      case Artifact.flutterFrameworkDsym:
       case Artifact.flutterMacOSXcframework:
-      case Artifact.flutterPatchedSdkPath:
       case Artifact.flutterTester:
       case Artifact.flutterXcframework:
       case Artifact.fontSubset:
@@ -592,8 +597,6 @@ class CachedArtifacts implements Artifacts {
       case Artifact.isolateSnapshotData:
       case Artifact.linuxDesktopPath:
       case Artifact.linuxHeaders:
-      case Artifact.platformKernelDill:
-      case Artifact.platformLibrariesJson:
       case Artifact.skyEnginePath:
       case Artifact.vmSnapshotData:
       case Artifact.windowsCppClientWrapper:
@@ -602,6 +605,53 @@ class CachedArtifacts implements Artifacts {
       case Artifact.flutterEngineHar:
         return _getHostArtifactPath(artifact, platform, mode);
     }
+  }
+
+  String _getDesktopCompilerArtifactPath(
+    Artifact artifact,
+    TargetPlatform platform,
+    BuildMode? mode,
+  ) {
+    // Desktop debug/hot-reload still use the fork's JIT SDK. Only AOT must
+    // match the ABI numbering of the published desktop gen_snapshot/engine.
+    if (mode != BuildMode.profile && mode != BuildMode.release) {
+      return _getHostArtifactPath(artifact, platform, mode);
+    }
+    final String root = _fileSystem.path.join(
+      _cache.getArtifactDirectory('engine').path,
+      'desktop-compiler',
+    );
+    final String sdk = _fileSystem.path.join(root, 'dart-sdk');
+    final String patchedSdk = _fileSystem.path.join(
+      root,
+      'common',
+      mode == BuildMode.release ? 'flutter_patched_sdk_product' : 'flutter_patched_sdk',
+    );
+    return switch (artifact) {
+      Artifact.engineDartSdkPath => sdk,
+      Artifact.engineDartBinary || Artifact.engineDartAotRuntime => _fileSystem.path.join(
+        sdk,
+        'bin',
+        _artifactToFileName(artifact, _platform),
+      ),
+      Artifact.frontendServerSnapshotForEngineDartSdk => _fileSystem.path.join(
+        sdk,
+        'bin',
+        'snapshots',
+        _artifactToFileName(artifact, _platform),
+      ),
+      Artifact.flutterPatchedSdkPath => patchedSdk,
+      Artifact.platformKernelDill => _fileSystem.path.join(
+        patchedSdk,
+        _artifactToFileName(artifact, _platform),
+      ),
+      Artifact.platformLibrariesJson => _fileSystem.path.join(
+        patchedSdk,
+        'lib',
+        _artifactToFileName(artifact, _platform),
+      ),
+      _ => throw StateError('Not a desktop compiler artifact: $artifact'),
+    };
   }
 
   String _getAndroidArtifactPath(Artifact artifact, TargetPlatform platform, BuildMode mode) {
@@ -898,8 +948,9 @@ class CachedArtifacts implements Artifacts {
         throw StateError('Artifact $artifact not available for platform $platform.');
       case Artifact.flutterEngineHar:
         return _fileSystem.path.join(
-                      _getEngineArtifactsPath(platform, mode)!,
-                     _artifactToFileName(artifact, _platform, mode));
+          _getEngineArtifactsPath(platform, mode)!,
+          _artifactToFileName(artifact, _platform, mode),
+        );
       case Artifact.flutterToolsFileGenerators:
         return _getFileGeneratorsPath();
     }
@@ -1145,17 +1196,15 @@ class CachedLocalEngineArtifacts implements Artifacts {
   final Artifacts _backupCache;
 
   /// this list hostArtifact will execute by the backup engine ,because local engine arch not match .
-  final List<HostArtifact> hostArtifactList = [
-    HostArtifact.impellerc,
-  ];
+  final List<HostArtifact> hostArtifactList = [HostArtifact.impellerc];
 
-  bool isOhosLocalEngine(){
+  bool isOhosLocalEngine() {
     return _fileSystem.path.basename(localEngineInfo.targetOutPath).contains('ohos');
   }
 
   @override
   FileSystemEntity getHostArtifact(HostArtifact artifact) {
-    if (isOhosLocalEngine() && hostArtifactList.contains(artifact)){
+    if (isOhosLocalEngine() && hostArtifactList.contains(artifact)) {
       return _backupCache.getHostArtifact(artifact);
     }
     switch (artifact) {
@@ -1446,7 +1495,10 @@ class CachedLocalEngineArtifacts implements Artifacts {
 
   String _flutterTesterPath(TargetPlatform platform) {
     if (_platform.isLinux) {
-      return _fileSystem.path.join(localEngineInfo.targetOutPath, _artifactToFileName(Artifact.flutterTester, _platform));
+      return _fileSystem.path.join(
+        localEngineInfo.targetOutPath,
+        _artifactToFileName(Artifact.flutterTester, _platform),
+      );
     } else if (_platform.isMacOS) {
       return _fileSystem.path.join(localEngineInfo.targetOutPath, 'flutter_tester');
     } else if (_platform.isWindows) {

@@ -249,7 +249,10 @@ class KernelSnapshot extends Target {
       TargetPlatform.ios => 'ios',
       TargetPlatform.linux_arm64 || TargetPlatform.linux_x64 => 'linux',
       TargetPlatform.windows_arm64 || TargetPlatform.windows_x64 => 'windows',
-      TargetPlatform.ohos || TargetPlatform.ohos_arm || TargetPlatform.ohos_arm64 || TargetPlatform.ohos_x64 => 'ohos',
+      TargetPlatform.ohos ||
+      TargetPlatform.ohos_arm ||
+      TargetPlatform.ohos_arm64 ||
+      TargetPlatform.ohos_x64 => 'ohos',
       TargetPlatform.tester || TargetPlatform.web_javascript => null,
       TargetPlatform.unsupported => TargetPlatform.throwUnsupportedTarget(),
     };
@@ -288,6 +291,18 @@ class KernelSnapshot extends Target {
       packageConfig: packageConfig,
       buildDir: environment.buildDir,
       targetOS: targetOS,
+      // Other targets retain their existing compiler selection. Desktop AOT
+      // requires a frontend/runtime from the same revision as its gen_snapshot.
+      targetPlatform: !buildMode.isPrecompiled
+          ? null
+          : switch (targetPlatform) {
+              TargetPlatform.darwin ||
+              TargetPlatform.linux_x64 ||
+              TargetPlatform.linux_arm64 ||
+              TargetPlatform.windows_x64 ||
+              TargetPlatform.windows_arm64 => targetPlatform,
+              _ => null,
+            },
       checkDartPluginRegistry: environment.generateDartPluginRegistry,
     );
     if (output == null || output.errorCount != 0) {

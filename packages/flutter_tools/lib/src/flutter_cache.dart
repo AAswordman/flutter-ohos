@@ -18,6 +18,7 @@ import 'base/process.dart';
 import 'cache.dart';
 import 'dart/package_map.dart';
 import 'dart/pub.dart';
+import 'desktop_compiler_artifacts.dart';
 import 'globals.dart' as globals;
 import 'project.dart';
 
@@ -42,6 +43,7 @@ class FlutterCache extends Cache {
     registerArtifact(LegacyCanvasKitRemover(this));
     registerArtifact(FlutterSdk(this));
     registerArtifact(FlutterSdkOhos(this, platform: platform));
+    registerArtifact(DesktopCompilerArtifacts(this, platform: platform));
     registerArtifact(WindowsEngineArtifacts(this, platform: platform));
     registerArtifact(MacOSEngineArtifacts(this, platform: platform));
     registerArtifact(LinuxEngineArtifacts(this, platform: platform));
