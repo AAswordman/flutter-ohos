@@ -882,9 +882,10 @@ void main() {
       await webSdk.updateInner(artifactUpdater, fileSystem, FakeOperatingSystemUtils());
 
       expect(messages, <String>['Downloading Web SDK...']);
+      expect(webSdk.version, '3.41.10-ohos-0.0.2-beta.operit.2');
 
       expect(downloads, <String>[
-        'https://storage.googleapis.com/flutter_infra_release/flutter/hijklmnop/flutter-web-sdk.zip',
+        'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.2/flutter-web-sdk.zip',
       ]);
 
       expect(locations, <String>['/bin/cache/flutter_web_sdk']);
@@ -895,7 +896,7 @@ void main() {
   );
 
   testWithoutContext(
-    'FlutterWebSdk CanvasKit URL can be overridden via FLUTTER_STORAGE_BASE_URL',
+    'FlutterWebSdk release URL is independent of the upstream storage override',
     () async {
       final fileSystem = MemoryFileSystem.test();
       final Directory internalDir = fileSystem.currentDirectory
@@ -938,7 +939,7 @@ void main() {
       await webSdk.updateInner(artifactUpdater, fileSystem, FakeOperatingSystemUtils());
 
       expect(downloads, <String>[
-        'https://flutter.storage.com/override/flutter_infra_release/flutter/hijklmnop/flutter-web-sdk.zip',
+        'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.2/flutter-web-sdk.zip',
       ]);
     },
   );

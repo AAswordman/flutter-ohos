@@ -175,7 +175,7 @@ class FlutterWebSdk extends CachedArtifact {
   Directory get location => cache.getWebSdkDirectory();
 
   @override
-  String? get version => cache.getVersionFor('engine.ohos');
+  String get version => '3.41.10-ohos-0.0.2-beta.operit.2';
 
   @override
   Future<void> updateInner(
@@ -184,7 +184,7 @@ class FlutterWebSdk extends CachedArtifact {
     OperatingSystemUtils operatingSystemUtils,
   ) async {
     final Uri url = Uri.parse(
-      '${cache.ohosStorageBaseUrl}/flutter_infra_release/flutter/$version/flutter-web-sdk.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/$version/flutter-web-sdk.zip',
     );
     ErrorHandlingFileSystem.deleteIfExists(location, recursive: true);
     await artifactUpdater.downloadZipArchive('Downloading Web SDK...', url, location);

@@ -326,7 +326,7 @@ def get_repository_version(repository):
 
   git = 'git'
   if sys.platform.startswith(('cygwin', 'win')):
-    git = 'git.bat'
+    git = 'git.exe'
   version = subprocess.check_output([
       git,
       '-C',

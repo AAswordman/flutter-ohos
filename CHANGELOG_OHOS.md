@@ -1,3 +1,11 @@
+# 3.41.10-ohos-0.0.2-beta.operit.2 (2026-10-07)
+
+- Publish the WebGL context-loss recovery fix from `f320fdb0793` in rebuilt Web SDK platform kernels and DDC modules.
+- Publish desktop AOT ABI isolation from `13a5543b0be` with complete matching compiler packages.
+- Correct Windows bootstrap revision detection and the Windows GN Git executable selection.
+- Keep existing matching native desktop engines and all OHOS native artifacts unchanged.
+- See [release scope and verification](docs/engine/operit-2-release.md) before distributing rebuilt applications.
+
 # Changelog
 
 ## Unreleased — Web engine context-loss fix
