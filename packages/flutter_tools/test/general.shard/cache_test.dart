@@ -736,6 +736,33 @@ void main() {
     );
   });
 
+  testWithoutContext('Windows desktop artifacts download the accessibility fix release', () async {
+    final fileSystem = MemoryFileSystem.test(style: FileSystemStyle.windows);
+    final cache = Cache.test(
+      fileSystem: fileSystem,
+      platform: FakePlatform(operatingSystem: 'windows'),
+      processManager: FakeProcessManager.any(),
+    );
+    final artifacts = WindowsEngineArtifacts(
+      cache,
+      platform: FakePlatform(operatingSystem: 'windows'),
+    );
+    final updater = FakeArtifactUpdater();
+    final downloads = <String>[];
+    updater.onDownloadZipArchive = (String message, Uri uri, Directory location) {
+      downloads.add(uri.toString());
+    };
+
+    expect(artifacts.version, '3.41.10-ohos-0.0.2-beta.operit.3');
+    await artifacts.updateInner(updater, fileSystem, FakeOperatingSystemUtils());
+
+    expect(downloads, <String>[
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.3/windows-x64-debug.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.3/windows-x64-profile.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.3/windows-x64-release.zip',
+    ]);
+  });
+
   testWithoutContext('Linux desktop artifacts ignore filtering when requested', () {
     fakeProcessManager.addCommand(unameCommandForX64);
 

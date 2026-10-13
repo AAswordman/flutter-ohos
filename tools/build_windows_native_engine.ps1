@@ -1,6 +1,6 @@
 param(
   [ValidateSet('debug','profile','release')][string]$Mode = 'debug',
-  [string]$Version = '3.41.10-ohos-0.0.2-beta.operit.1',
+  [string]$Version = '3.41.10-ohos-0.0.2-beta.operit.3',
   [string]$Python = 'python',
   [int]$Jobs = 8,
   [switch]$RunTests,
@@ -24,11 +24,13 @@ try {
   if ($LASTEXITCODE) { throw 'Engine GN generation failed.' }
   $out = Join-Path $root "engine/src/out/host_$Mode"
   $targets = @('flutter/shell/platform/windows:windows', 'gen_snapshot')
-  if ($RunTests) { $targets += 'flutter_windows_unittests' }
+  if ($RunTests) { $targets += @('common_cpp_unittests', 'flutter_windows_unittests') }
   & $Ninja -C $out -j $Jobs @targets
   if ($LASTEXITCODE) { throw 'Engine build failed.' }
   if ($RunTests) {
-    & "$out/flutter_windows_unittests.exe" '--gtest_filter=NativeCompositionTest.*:PlatformViewPluginTest.*:FlutterWindowsEngineTest.RegisterPlatformViewBeforeRun:CompositorOpenGLTest.*'
+    & "$out/common_cpp_unittests.exe"
+    if ($LASTEXITCODE) { throw 'Common engine tests failed.' }
+    & "$out/flutter_windows_unittests.exe" '--gtest_filter=AccessibilityBridgeWindows.*:AccessibilityPluginTest.*:NativeCompositionTest.*:PlatformViewPluginTest.*:FlutterWindowsEngineTest.RegisterPlatformViewBeforeRun:CompositorOpenGLTest.*'
     if ($LASTEXITCODE) { throw 'Windows engine tests failed.' }
   }
   $stage = Join-Path $out "native-artifact/windows-x64-$Mode-$Version-$([guid]::NewGuid().ToString('N'))"
@@ -49,6 +51,7 @@ try {
   $manifest = [ordered]@{
     frameworkVersion = $Version
     frameworkRevision = (& git rev-parse HEAD).Trim()
+    engineSourceRevision = (& git rev-parse HEAD).Trim()
     engineRevision = (Get-Content bin/internal/engine.version -Raw).Trim()
     target = 'windows-x64'
     runtimeMode = $Mode

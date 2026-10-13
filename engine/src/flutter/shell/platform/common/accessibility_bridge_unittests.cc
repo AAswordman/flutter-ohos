@@ -563,6 +563,120 @@ TEST(AccessibilityBridgeTest, CanReparentNodeWithChild) {
               Contains(ui::AXEventGenerator::Event::ROLE_CHANGED).Times(1));
 }
 
+/// Preserves unchanged nodes between a moved parent and a changed descendant.
+TEST(AccessibilityBridgeTest, ReparentAcrossUnchangedIntermediateNode) {
+  auto bridge = std::make_shared<TestAccessibilityBridge>();
+  std::vector<int32_t> root_children{1, 2};
+  std::vector<int32_t> moved_children{3};
+  std::vector<int32_t> intermediate_children{452};
+  auto root = CreateSemanticsNode(123, "root", &root_children);
+  auto moved = CreateSemanticsNode(1, "moved", &moved_children);
+  auto destination = CreateSemanticsNode(2, "destination");
+  auto intermediate =
+      CreateSemanticsNode(3, "unchanged", &intermediate_children);
+  auto leaf = CreateSemanticsNode(452, "before");
+  for (const auto& node : {root, moved, destination, intermediate, leaf}) {
+    bridge->AddFlutterSemanticsNodeUpdate(node);
+  }
+  bridge->CommitUpdates();
+  ASSERT_TRUE(bridge->GetTree()->error().empty());
+
+  root_children = {2};
+  root = CreateSemanticsNode(123, "root", &root_children);
+  std::vector<int32_t> destination_children{1};
+  destination = CreateSemanticsNode(2, "destination", &destination_children);
+  leaf = CreateSemanticsNode(452, "after");
+  // The intermediate child is unchanged and absent from the Flutter batch.
+  for (const auto& node : {leaf, destination, root, moved}) {
+    bridge->AddFlutterSemanticsNodeUpdate(node);
+  }
+  bridge->CommitUpdates();
+  ASSERT_TRUE(bridge->GetTree()->error().empty()) << bridge->GetTree()->error();
+  ASSERT_NE(bridge->GetTree()->GetFromId(452), nullptr);
+  EXPECT_EQ(bridge->GetTree()->GetFromId(1)->parent()->id(), 2);
+  EXPECT_EQ(bridge->GetTree()->GetFromId(3)->parent()->id(), 1);
+  EXPECT_EQ(bridge->GetTree()->GetFromId(452)->parent()->id(), 3);
+  auto delegate = bridge->GetFlutterPlatformNodeDelegateFromID(452).lock();
+  ASSERT_TRUE(delegate);
+  EXPECT_EQ(delegate->GetName(), "after");
+
+  // A subsequent ordinary incremental update must still succeed.
+  leaf = CreateSemanticsNode(452, "next frame");
+  bridge->AddFlutterSemanticsNodeUpdate(leaf);
+  bridge->CommitUpdates();
+  EXPECT_TRUE(bridge->GetTree()->error().empty());
+  EXPECT_EQ(delegate->GetName(), "next frame");
+}
+
+/// Restores a moved subtree without resurrecting descendants removed this
+/// batch.
+TEST(AccessibilityBridgeTest, ReparentSubtreeWhileRemovingDescendant) {
+  auto bridge = std::make_shared<TestAccessibilityBridge>();
+  std::vector<int32_t> root_children{1, 2};
+  std::vector<int32_t> moved_children{384, 452};
+  auto root = CreateSemanticsNode(0, "root", &root_children);
+  auto moved = CreateSemanticsNode(1, "moved", &moved_children);
+  auto destination = CreateSemanticsNode(2, "destination");
+  auto removed = CreateSemanticsNode(384, "removed");
+  auto retained = CreateSemanticsNode(452, "retained");
+  for (const auto& node : {root, moved, destination, removed, retained}) {
+    bridge->AddFlutterSemanticsNodeUpdate(node);
+  }
+  bridge->CommitUpdates();
+  ASSERT_TRUE(bridge->GetTree()->error().empty());
+
+  root_children = {2};
+  root = CreateSemanticsNode(0, "root", &root_children);
+  std::vector<int32_t> destination_children{1};
+  destination = CreateSemanticsNode(2, "destination", &destination_children);
+  moved_children = {452};
+  moved = CreateSemanticsNode(1, "moved", &moved_children);
+  for (const auto& node : {moved, root, destination}) {
+    bridge->AddFlutterSemanticsNodeUpdate(node);
+  }
+  bridge->CommitUpdates();
+  ASSERT_TRUE(bridge->GetTree()->error().empty()) << bridge->GetTree()->error();
+  EXPECT_EQ(bridge->GetTree()->GetFromId(384), nullptr);
+  EXPECT_TRUE(bridge->GetFlutterPlatformNodeDelegateFromID(384).expired());
+  ASSERT_NE(bridge->GetTree()->GetFromId(452), nullptr);
+  EXPECT_EQ(bridge->GetTree()->GetFromId(452)->parent()->id(), 1);
+}
+
+/// Handles simultaneous moves of an ancestor and one of its descendants.
+TEST(AccessibilityBridgeTest, ReparentAncestorAndDescendantTogether) {
+  auto bridge = std::make_shared<TestAccessibilityBridge>();
+  std::vector<int32_t> root_children{1, 2};
+  std::vector<int32_t> moved_children{3};
+  std::vector<int32_t> intermediate_children{452};
+  auto root = CreateSemanticsNode(0, "root", &root_children);
+  auto moved = CreateSemanticsNode(1, "moved", &moved_children);
+  auto destination = CreateSemanticsNode(2, "destination");
+  auto intermediate =
+      CreateSemanticsNode(3, "intermediate", &intermediate_children);
+  auto leaf = CreateSemanticsNode(452, "leaf");
+  for (const auto& node : {root, moved, destination, intermediate, leaf}) {
+    bridge->AddFlutterSemanticsNodeUpdate(node);
+  }
+  bridge->CommitUpdates();
+  ASSERT_TRUE(bridge->GetTree()->error().empty());
+
+  root_children = {2};
+  root = CreateSemanticsNode(0, "root", &root_children);
+  std::vector<int32_t> destination_children{1, 452};
+  destination = CreateSemanticsNode(2, "destination", &destination_children);
+  intermediate = CreateSemanticsNode(3, "intermediate");
+  for (const auto& node : {intermediate, destination, root}) {
+    bridge->AddFlutterSemanticsNodeUpdate(node);
+  }
+  bridge->CommitUpdates();
+  ASSERT_TRUE(bridge->GetTree()->error().empty()) << bridge->GetTree()->error();
+  ASSERT_NE(bridge->GetTree()->GetFromId(452), nullptr);
+  EXPECT_EQ(bridge->GetTree()->GetFromId(1)->parent()->id(), 2);
+  EXPECT_EQ(bridge->GetTree()->GetFromId(3)->parent()->id(), 1);
+  EXPECT_EQ(bridge->GetTree()->GetFromId(452)->parent()->id(), 2);
+  EXPECT_EQ(bridge->GetTree()->GetFromId(3)->children().size(), 0u);
+}
+
 TEST(AccessibilityBridgeTest, AXTreeManagerTest) {
   std::shared_ptr<TestAccessibilityBridge> bridge =
       std::make_shared<TestAccessibilityBridge>();

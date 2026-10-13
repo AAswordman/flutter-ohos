@@ -5,6 +5,7 @@
 #include "accessibility_bridge.h"
 
 #include <functional>
+#include <unordered_set>
 #include <utility>
 
 #include "flutter/third_party/accessibility/ax/ax_tree_manager_map.h"
@@ -47,7 +48,16 @@ void AccessibilityBridge::AddFlutterSemanticsCustomActionUpdate(
       FromFlutterSemanticsCustomAction(action);
 }
 
+/// Commits one semantics batch while preserving reparented subtree contents.
 void AccessibilityBridge::CommitUpdates() {
+  ui::AXTreeUpdate update{.tree_data = tree_->data()};
+  std::unordered_map<int32_t, ui::AXNodeData> node_updates;
+  for (const auto& [id, node] : pending_semantics_node_updates_) {
+    ConvertFlutterUpdate(node, update);
+    node_updates.emplace(id, std::move(update.nodes.back()));
+    update.nodes.pop_back();
+  }
+
   // AXTree cannot move a node in a single update.
   // This must be split across two updates:
   //
@@ -56,7 +66,7 @@ void AccessibilityBridge::CommitUpdates() {
   //
   // First, start by removing nodes if necessary.
   std::optional<ui::AXTreeUpdate> remove_reparented =
-      CreateRemoveReparentedNodesUpdate();
+      CreateRemoveReparentedNodesUpdate(node_updates);
   if (remove_reparented.has_value()) {
     tree_->Unserialize(remove_reparented.value());
 
@@ -70,39 +80,36 @@ void AccessibilityBridge::CommitUpdates() {
 
   // Second, apply the pending node updates. This also moves reparented nodes to
   // their new parents if needed.
-  ui::AXTreeUpdate update{.tree_data = tree_->data()};
-
-  // Figure out update order, ui::AXTree only accepts update in tree order,
-  // where parent node must come before the child node in
-  // ui::AXTreeUpdate.nodes. We start with picking a random node and turn the
-  // entire subtree into a list. We pick another node from the remaining update,
-  // and keep doing so until the update map is empty. We then concatenate the
-  // lists in the reversed order, this guarantees parent updates always come
-  // before child updates. If the root is in the update, it is guaranteed to
-  // be the first node of the last list.
-  std::vector<std::vector<SemanticsNode>> results;
-  while (!pending_semantics_node_updates_.empty()) {
-    auto begin = pending_semantics_node_updates_.begin();
-    SemanticsNode target = begin->second;
-    std::vector<SemanticsNode> sub_tree_list;
-    GetSubTreeList(target, sub_tree_list);
-    results.push_back(sub_tree_list);
-    pending_semantics_node_updates_.erase(begin);
-  }
-
-  for (size_t i = results.size(); i > 0; i--) {
-    for (const SemanticsNode& node : results[i - 1]) {
-      ConvertFlutterUpdate(node, update);
+  int32_t root_id = GetRootAsAXNode()->id();
+  if (!node_updates.empty() && root_id == ui::AXNode::kInvalidAXID) {
+    std::unordered_set<int32_t> child_ids;
+    for (const auto& [id, node] : node_updates) {
+      child_ids.insert(node.child_ids.begin(), node.child_ids.end());
     }
+    size_t root_count = 0;
+    for (const auto& [id, node] : node_updates) {
+      if (child_ids.find(id) == child_ids.end()) {
+        root_id = id;
+        root_count++;
+      }
+    }
+    if (root_count != 1) {
+      FML_LOG(ERROR) << "A semantics batch must have one root.";
+      return;
+    }
+    update.root_id = root_id;
   }
 
-  // The first update must set the tree's root, which is guaranteed to be the
-  // last list's first node. A tree's root node never changes, though it can be
-  // modified.
-  if (!results.empty() && GetRootAsAXNode()->id() == ui::AXNode::kInvalidAXID) {
-    FML_DCHECK(!results.back().empty());
-
-    update.root_id = results.back().front().id;
+  // Traverse the final structure, including unchanged intermediate nodes.
+  // Nodes removed by this batch must not be serialized after their deletion.
+  if (!GetSubTreeList(root_id, node_updates, update.nodes)) {
+    return;
+  }
+  for (const auto& node : update.nodes) {
+    auto iter = pending_semantics_node_updates_.find(node.id);
+    if (iter != pending_semantics_node_updates_.end()) {
+      SetTreeData(iter->second, update);
+    }
   }
 
   tree_->Unserialize(update);
@@ -210,9 +217,13 @@ void AccessibilityBridge::OnAtomicUpdateFinished(
   }
 }
 
+/// Preserves old subtree data before removing the highest moved nodes.
 std::optional<ui::AXTreeUpdate>
-AccessibilityBridge::CreateRemoveReparentedNodesUpdate() {
+AccessibilityBridge::CreateRemoveReparentedNodesUpdate(
+    std::unordered_map<int32_t, ui::AXNodeData>& node_updates) {
   std::unordered_map<int32_t, ui::AXNodeData> updates;
+  std::unordered_set<int32_t> moved_ids;
+  std::unordered_set<int32_t> preserved_ids;
 
   for (const auto& node_update : pending_semantics_node_updates_) {
     for (int32_t child_id : node_update.second.children_in_traversal_order) {
@@ -230,10 +241,22 @@ AccessibilityBridge::CreateRemoveReparentedNodesUpdate() {
         continue;
       }
 
-      // This pending update moves the current child node.
-      // That new child must have a corresponding pending update.
-      assert(pending_semantics_node_updates_.find(child_id) !=
-             pending_semantics_node_updates_.end());
+      moved_ids.insert(child_id);
+
+      // Detaching a node destroys every descendant in AXTree. Preserve the
+      // complete old subtree, including nodes absent from the incremental
+      // Flutter batch. emplace keeps the batch's new data for changed nodes.
+      std::vector<ui::AXNode*> subtree{child};
+      while (!subtree.empty()) {
+        ui::AXNode* node = subtree.back();
+        subtree.pop_back();
+        if (!preserved_ids.insert(node->id()).second) {
+          continue;
+        }
+        node_updates.emplace(node->id(), node->data());
+        subtree.insert(subtree.end(), node->children().begin(),
+                       node->children().end());
+      }
 
       // Create an update to remove the child from its previous parent.
       int32_t parent_id = child->parent()->id();
@@ -260,24 +283,52 @@ AccessibilityBridge::CreateRemoveReparentedNodesUpdate() {
   };
 
   for (std::pair<int32_t, ui::AXNodeData> data : updates) {
-    update.nodes.push_back(std::move(data.second));
+    // An ancestor's detachment already deletes this parent. Updating it in
+    // the removal phase would serialize a node that no longer exists.
+    ui::AXNode* ancestor = tree_->GetFromId(data.first);
+    while (ancestor && moved_ids.find(ancestor->id()) == moved_ids.end()) {
+      ancestor = ancestor->parent();
+    }
+    if (!ancestor) {
+      update.nodes.push_back(std::move(data.second));
+    }
   }
 
   return update;
 }
 
-// Private method.
-void AccessibilityBridge::GetSubTreeList(const SemanticsNode& target,
-                                         std::vector<SemanticsNode>& result) {
-  result.push_back(target);
-  for (int32_t child : target.children_in_traversal_order) {
-    auto iter = pending_semantics_node_updates_.find(child);
-    if (iter != pending_semantics_node_updates_.end()) {
-      SemanticsNode node = iter->second;
-      GetSubTreeList(node, result);
-      pending_semantics_node_updates_.erase(iter);
+/// Visits the final child relationships and emits only changed or moved nodes.
+bool AccessibilityBridge::GetSubTreeList(
+    int32_t root_id,
+    const std::unordered_map<int32_t, ui::AXNodeData>& node_updates,
+    std::vector<ui::AXNodeData>& result) {
+  std::vector<int32_t> remaining{root_id};
+  std::unordered_set<int32_t> visited;
+  while (!remaining.empty()) {
+    int32_t id = remaining.back();
+    remaining.pop_back();
+    if (!visited.insert(id).second) {
+      FML_LOG(ERROR) << "Semantics node " << id
+                     << " has multiple parents or forms a cycle.";
+      return false;
     }
+    auto iter = node_updates.find(id);
+    const ui::AXNodeData* data;
+    if (iter != node_updates.end()) {
+      data = &iter->second;
+      result.push_back(*data);
+    } else {
+      ui::AXNode* node = tree_->GetFromId(id);
+      if (!node) {
+        FML_LOG(ERROR) << "Missing semantics data for node " << id;
+        return false;
+      }
+      data = &node->data();
+    }
+    remaining.insert(remaining.end(), data->child_ids.rbegin(),
+                     data->child_ids.rend());
   }
+  return true;
 }
 
 void AccessibilityBridge::ConvertFlutterUpdate(const SemanticsNode& node,
@@ -306,7 +357,6 @@ void AccessibilityBridge::ConvertFlutterUpdate(const SemanticsNode& node,
   for (auto child : node.children_in_traversal_order) {
     node_data.child_ids.push_back(child);
   }
-  SetTreeData(node, tree_update);
   tree_update.nodes.push_back(node_data);
 }
 

@@ -205,12 +205,15 @@ class AccessibilityBridge
 
   void InitAXTree(const ui::AXTreeUpdate& initial_state);
 
-  // Create an update that removes any nodes that will be reparented by
-  // pending_semantics_updates_. Returns std::nullopt if none are reparented.
-  std::optional<ui::AXTreeUpdate> CreateRemoveReparentedNodesUpdate();
+  /// Detaches moved subtrees and preserves their data for the final update.
+  std::optional<ui::AXTreeUpdate> CreateRemoveReparentedNodesUpdate(
+      std::unordered_map<int32_t, ui::AXNodeData>& node_updates);
 
-  void GetSubTreeList(const SemanticsNode& target,
-                      std::vector<SemanticsNode>& result);
+  /// Serializes changed nodes in the final tree's parent-before-child order.
+  bool GetSubTreeList(
+      int32_t root_id,
+      const std::unordered_map<int32_t, ui::AXNodeData>& node_updates,
+      std::vector<ui::AXNodeData>& result);
   void ConvertFlutterUpdate(const SemanticsNode& node,
                             ui::AXTreeUpdate& tree_update);
   void SetRoleFromFlutterUpdate(ui::AXNodeData& node_data,

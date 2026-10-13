@@ -338,7 +338,7 @@ class WindowsEngineArtifacts extends EngineCachedArtifact {
 
   /// Uses an independent stamp so official desktop binaries cannot satisfy this cache.
   @override
-  String get version => '3.41.10-ohos-0.0.2-beta.operit.1';
+  String get version => '3.41.10-ohos-0.0.2-beta.operit.3';
 
   /// Desktop archives do not contain Dart packages.
   @override
