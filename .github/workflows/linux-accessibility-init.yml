@@ -8,7 +8,7 @@ on:
         default: '3.41.10-ohos-0.0.2-beta.operit.4'
         type: string
 permissions:
-  contents: read
+  contents: write
 jobs:
   initialization:
     runs-on: ubuntu-22.04
