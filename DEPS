@@ -640,7 +640,8 @@ deps = {
         'version': 'version:21'
        }
      ],
-     # Always download the JDK since java is required for running the formatter.
+     # Java is required only when the JDK download is explicitly enabled.
+     'condition': 'download_jdk',
      'dep_type': 'cipd',
    },
 

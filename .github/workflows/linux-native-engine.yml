@@ -49,7 +49,7 @@ jobs:
           from pathlib import Path
           config = Path('engine/scripts/standard.gclient').read_text()
           config = config.replace('https://github.com/flutter/flutter.git', 'https://github.com/AAswordman/flutter-ohos.git')
-          config = config.replace('"custom_deps": {},', '"custom_deps": {"engine/src/flutter/third_party/java/openjdk": None}, "custom_vars": {"download_android_deps": False, "download_fuchsia_deps": False, "download_esbuild": False, "setup_githooks": False},')
+          config = config.replace('"custom_deps": {},', '"custom_deps": {}, "custom_vars": {"download_android_deps": False, "download_fuchsia_deps": False, "download_jdk": False, "download_esbuild": False, "setup_githooks": False},')
           Path('.gclient').write_text(config)
           PY
           gclient sync --no-history --shallow -j 6
