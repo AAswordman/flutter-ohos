@@ -24,6 +24,7 @@
 #include "flutter/shell/platform/linux/fl_touch_manager.h"
 #include "flutter/shell/platform/linux/fl_view_accessible.h"
 #include "flutter/shell/platform/linux/fl_view_private.h"
+#include "flutter/shell/platform/linux/fl_view_scene.h"
 #include "flutter/shell/platform/linux/fl_window_state_monitor.h"
 #include "flutter/shell/platform/linux/public/flutter_linux/fl_engine.h"
 #include "flutter/shell/platform/linux/public/flutter_linux/fl_plugin_registry.h"
@@ -33,6 +34,10 @@ struct _FlView {
 
   // Event box the render area goes inside.
   GtkWidget* event_box;
+
+  // Flutter stores and native widgets are interleaved below the input surface.
+  FlViewScene* scene;
+  gint redraw_pending;
 
   // The widget rendering the Flutter view.
   GtkDrawingArea* render_area;
@@ -103,6 +108,17 @@ G_DEFINE_TYPE_WITH_CODE(
 static gboolean redraw_cb(gpointer user_data) {
   FlView* self = FL_VIEW(user_data);
 
+  g_atomic_int_set(&self->redraw_pending, 0);
+  // A destroyed view may still have a queued redraw source holding a reference.
+  if (self->compositor == nullptr) {
+    return G_SOURCE_REMOVE;
+  }
+  auto frame = fl_compositor_get_frame(self->compositor);
+  if (frame) {
+    fl_view_scene_set_frame(self->scene, self->compositor, std::move(frame),
+                            self->render_context);
+    gtk_overlay_reorder_overlay(GTK_OVERLAY(self->scene), self->event_box, -1);
+  }
   gtk_widget_queue_draw(GTK_WIDGET(self->render_area));
 
   if (!self->have_first_frame) {
@@ -252,8 +268,11 @@ static void fl_view_present_layers(FlRenderable* renderable,
 
   fl_compositor_present_layers(self->compositor, layers, layers_count);
 
-  // Perform the redraw in the GTK thead.
-  g_idle_add(redraw_cb, self);
+  // Coalesce raster submissions; GTK consumes the latest complete snapshot.
+  if (g_atomic_int_compare_and_exchange(&self->redraw_pending, 0, 1)) {
+    g_idle_add_full(G_PRIORITY_DEFAULT_IDLE, redraw_cb, g_object_ref(self),
+                    g_object_unref);
+  }
 }
 
 // Implements FlPluginRegistry::get_registrar_for_plugin.
@@ -507,34 +526,11 @@ static void size_allocate_cb(FlView* self) {
   handle_geometry_changed(self);
 }
 
-static void paint_background(FlView* self, cairo_t* cr) {
-  // Don't bother drawing if fully transparent - the widget above this will
-  // already be drawn by GTK.
-  if (self->background_color->red == 0 && self->background_color->green == 0 &&
-      self->background_color->blue == 0 && self->background_color->alpha == 0) {
-    return;
-  }
-
+// Paints the configured window background below every Flutter and native layer.
+static gboolean background_draw_cb(FlView* self, cairo_t* cr) {
   gdk_cairo_set_source_rgba(cr, self->background_color);
   cairo_paint(cr);
-}
-
-static gboolean draw_cb(FlView* self, cairo_t* cr) {
-  paint_background(self, cr);
-
-  if (self->render_context) {
-    gdk_gl_context_make_current(self->render_context);
-  }
-
-  gboolean result = fl_compositor_render(
-      self->compositor, cr,
-      gtk_widget_get_window(GTK_WIDGET(self->render_area)));
-
-  if (self->render_context) {
-    gdk_gl_context_clear_current();
-  }
-
-  return result;
+  return TRUE;
 }
 
 static void fl_view_notify(GObject* object, GParamSpec* pspec) {
@@ -563,8 +559,10 @@ static void fl_view_dispose(GObject* object) {
     }
 
     // Release the view ID from the engine.
-    fl_engine_remove_view(self->engine, self->view_id, nullptr, nullptr,
-                          nullptr);
+    if (self->view_id != flutter::kFlutterImplicitViewId) {
+      fl_engine_remove_view(self->engine, self->view_id, nullptr, nullptr,
+                            nullptr);
+    }
   }
 
   if (self->on_pre_engine_restart_cb_id != 0) {
@@ -578,9 +576,13 @@ static void fl_view_dispose(GObject* object) {
     self->update_semantics_cb_id = 0;
   }
 
+  if (self->scene != nullptr) {
+    fl_view_scene_clear(self->scene);
+  }
   g_clear_object(&self->render_context);
   g_clear_object(&self->engine);
   g_clear_object(&self->compositor);
+  g_clear_object(&self->scene);
   g_clear_pointer(&self->background_color, gdk_rgba_free);
   g_clear_object(&self->window_state_monitor);
   g_clear_object(&self->scrolling_manager);
@@ -602,7 +604,11 @@ static void fl_view_realize(GtkWidget* widget) {
   gtk_widget_realize(GTK_WIDGET(self->render_area));
 }
 
+// Routes keyboard input exclusively to the currently focused host surface.
 static gboolean handle_key_event(FlView* self, GdkEventKey* key_event) {
+  if (fl_view_scene_has_native_focus(self->scene)) {
+    return FALSE;
+  }
   g_autoptr(FlKeyEvent) event = fl_key_event_new_from_gdk_event(
       gdk_event_copy(reinterpret_cast<GdkEvent*>(key_event)));
 
@@ -713,7 +719,21 @@ static void fl_view_init(FlView* self) {
   self->event_box = gtk_event_box_new();
   gtk_widget_set_hexpand(self->event_box, TRUE);
   gtk_widget_set_vexpand(self->event_box, TRUE);
-  gtk_container_add(GTK_CONTAINER(self), self->event_box);
+  self->scene = fl_view_scene_new();
+  GtkWidget* background = gtk_drawing_area_new();
+  gtk_widget_set_has_window(background, FALSE);
+  g_signal_connect_swapped(background, "draw", G_CALLBACK(background_draw_cb),
+                           self);
+  gtk_widget_show(background);
+  gtk_container_add(GTK_CONTAINER(self->scene), background);
+  gtk_widget_set_hexpand(GTK_WIDGET(self->scene), TRUE);
+  gtk_widget_set_vexpand(GTK_WIDGET(self->scene), TRUE);
+  gtk_container_add(GTK_CONTAINER(self), GTK_WIDGET(self->scene));
+  g_object_ref(self->scene);
+  gtk_widget_show(GTK_WIDGET(self->scene));
+  gtk_event_box_set_visible_window(GTK_EVENT_BOX(self->event_box), FALSE);
+  gtk_event_box_set_above_child(GTK_EVENT_BOX(self->event_box), TRUE);
+  gtk_overlay_add_overlay(GTK_OVERLAY(self->scene), self->event_box);
   gtk_widget_show(self->event_box);
   gtk_widget_add_events(self->event_box,
                         GDK_POINTER_MOTION_MASK | GDK_BUTTON_PRESS_MASK |
@@ -756,8 +776,6 @@ static void fl_view_init(FlView* self) {
                            self);
   g_signal_connect_swapped(self->render_area, "size-allocate",
                            G_CALLBACK(size_allocate_cb), self);
-  g_signal_connect_swapped(self->render_area, "draw", G_CALLBACK(draw_cb),
-                           self);
 }
 
 G_MODULE_EXPORT FlView* fl_view_new(FlDartProject* project) {
@@ -808,4 +826,23 @@ G_MODULE_EXPORT void fl_view_set_background_color(FlView* self,
 FlViewAccessible* fl_view_get_accessible(FlView* self) {
   g_return_val_if_fail(FL_IS_VIEW(self), nullptr);
   return self->view_accessible;
+}
+
+// Returns the native-view host without reparenting a realized Flutter surface.
+GtkOverlay* fl_view_get_native_view_overlay(FlView* self) {
+  g_return_val_if_fail(FL_IS_VIEW(self), nullptr);
+  return GTK_OVERLAY(self->scene);
+}
+
+// Registers a native widget whose place is defined by platform layers.
+void fl_view_register_native_view(FlView* self, int64_t id, GtkWidget* widget) {
+  g_return_if_fail(FL_IS_VIEW(self));
+  fl_view_scene_register_native_view(self->scene, id, widget);
+  gtk_overlay_reorder_overlay(GTK_OVERLAY(self->scene), self->event_box, -1);
+}
+
+// Removes a native widget from the scene before the plugin destroys it.
+void fl_view_unregister_native_view(FlView* self, int64_t id) {
+  g_return_if_fail(FL_IS_VIEW(self));
+  fl_view_scene_unregister_native_view(self->scene, id);
 }

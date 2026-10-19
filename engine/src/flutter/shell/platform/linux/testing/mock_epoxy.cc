@@ -6,6 +6,8 @@
 #include "flutter/shell/platform/linux/testing/mock_epoxy.h"
 #include "flutter/fml/logging.h"
 
+#include <cstring>
+
 using namespace flutter::testing;
 
 typedef struct {
@@ -59,6 +61,23 @@ static MockSurface mock_surface;
 static MockImage mock_image;
 
 static EGLint mock_error = EGL_SUCCESS;
+
+// Supplies deterministic readback bytes for state and resource lifetime tests.
+static void _glReadPixels(GLint,
+                          GLint,
+                          GLsizei width,
+                          GLsizei height,
+                          GLenum,
+                          GLenum,
+                          void* pixels) {
+  std::memset(pixels, 0, width * height * 4);
+}
+
+// Flushes a simulated GPU command queue without a real driver context.
+static void _glFlush() {}
+
+// Completes a simulated GPU submission without a driver context.
+static void _glFinish() {}
 
 MockEpoxy::MockEpoxy() {
   mock = this;
@@ -722,6 +741,9 @@ void (*epoxy_glTexImage2D)(GLenum target,
 GLenum (*epoxy_glGetError)();
 
 static void library_init() {
+  epoxy_glFinish = _glFinish;
+  epoxy_glFlush = _glFlush;
+  epoxy_glReadPixels = _glReadPixels;
   epoxy_eglBindAPI = _eglBindAPI;
   epoxy_eglChooseConfig = _eglChooseConfig;
   epoxy_eglCreateContext = _eglCreateContext;

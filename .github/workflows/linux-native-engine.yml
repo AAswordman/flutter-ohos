@@ -1,0 +1,102 @@
+name: Linux Native Composition Engine
+on:
+  push:
+    branches: [codex/linux-native-composition]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Exact SDK version to build'
+        required: true
+        type: string
+        default: '3.41.10-ohos-0.0.2-beta.operit.4'
+      publish:
+        description: 'Publish verified artifacts to the matching existing tag'
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [debug, profile, release]
+        platform:
+          - runner: ubuntu-22.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: flutter
+          fetch-depth: 0
+      - name: Install Linux build and scene-test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build cmake clang pkg-config libgtk-3-dev libepoxy-dev libwebkit2gtk-4.1-dev libegl1-mesa-dev xvfb dbus-x11 python3-venv
+      - name: Install depot tools
+        run: |
+          git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$RUNNER_TEMP/depot_tools"
+          echo "$RUNNER_TEMP/depot_tools" >> "$GITHUB_PATH"
+      - name: Synchronize pinned engine dependencies
+        working-directory: flutter
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          config = Path('engine/scripts/standard.gclient').read_text()
+          config = config.replace('https://github.com/flutter/flutter.git', 'https://github.com/AAswordman/flutter-ohos.git')
+          config = config.replace('"custom_deps": {},', '"custom_deps": {}, "custom_vars": {"download_android_deps": False, "download_fuchsia_deps": False, "download_jdk": False, "download_esbuild": False, "setup_githooks": False},')
+          Path('.gclient').write_text(config)
+          PY
+          gclient sync --no-history --shallow -j 6
+      - name: Check release source identity
+        if: inputs.publish
+        working-directory: flutter
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+      - name: Build and test the native engine
+        working-directory: flutter
+        env:
+          VERSION: ${{ inputs.release_tag || '3.41.10-ohos-0.0.2-beta.operit.4' }}
+        run: bash tools/build_linux_native_engine.sh '${{ matrix.mode }}' "$VERSION" 4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.platform.arch }}-${{ matrix.mode }}-engine
+          path: |
+            flutter/engine/src/out/host_${{ matrix.mode }}/linux-*.zip
+            flutter/engine/src/out/host_${{ matrix.mode }}/linux-*.zip.sha256
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: matrix.mode == 'debug' && always()
+        with:
+          name: linux-${{ matrix.platform.arch }}-scene-results
+          path: |
+            flutter/engine/src/out/host_debug/linux-native-unit-tests.xml
+            flutter/engine/src/out/native_scene_probe/*.png
+          if-no-files-found: warn
+  publish:
+    if: inputs.publish
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: linux-*-engine
+          path: release-assets
+          merge-multiple: true
+      - name: Publish verified Linux engines
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.release_tag }}
+          name: Flutter ${{ inputs.release_tag }} with Linux native composition
+          generate_release_notes: true
+          files: |
+            release-assets/*.zip
+            release-assets/*.zip.sha256

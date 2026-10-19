@@ -169,6 +169,8 @@ source_set("flutter_linux_sources") {
     "fl_touch_manager.cc",
     "fl_value.cc",
     "fl_view.cc",
+    "fl_view_scene.cc",
+    "fl_view_scene.h",
     "fl_view_accessible.cc",
     "fl_window_monitor.cc",
     "fl_window_state_monitor.cc",

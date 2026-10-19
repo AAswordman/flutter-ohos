@@ -781,9 +781,9 @@ void main() {
     final artifacts = LinuxEngineArtifacts(cache, platform: FakePlatform());
 
     expect(artifacts.getBinaryDirs(), <List<String>>[
-      <String>['linux-x64', 'linux-x64-debug/linux-x64-flutter-gtk.zip'],
-      <String>['linux-x64-profile', 'linux-x64-profile/linux-x64-flutter-gtk.zip'],
-      <String>['linux-x64-release', 'linux-x64-release/linux-x64-flutter-gtk.zip'],
+      <String>['linux-x64', 'linux-x64-debug.zip'],
+      <String>['linux-x64-profile', 'linux-x64-profile.zip'],
+      <String>['linux-x64-release', 'linux-x64-release.zip'],
     ]);
   });
 
@@ -794,9 +794,35 @@ void main() {
     final artifacts = LinuxEngineArtifacts(cache, platform: FakePlatform());
 
     expect(artifacts.getBinaryDirs(), <List<String>>[
-      <String>['linux-arm64', 'linux-arm64-debug/linux-arm64-flutter-gtk.zip'],
-      <String>['linux-arm64-profile', 'linux-arm64-profile/linux-arm64-flutter-gtk.zip'],
-      <String>['linux-arm64-release', 'linux-arm64-release/linux-arm64-flutter-gtk.zip'],
+      <String>['linux-arm64', 'linux-arm64-debug.zip'],
+      <String>['linux-arm64-profile', 'linux-arm64-profile.zip'],
+      <String>['linux-arm64-release', 'linux-arm64-release.zip'],
+    ]);
+  });
+
+  testWithoutContext('Linux desktop artifacts require the ordered composition release', () async {
+    final fileSystem = MemoryFileSystem.test();
+    final cache = Cache.test(
+      fileSystem: fileSystem,
+      platform: FakePlatform(),
+      processManager: FakeProcessManager.list(<FakeCommand>[
+        unameCommandForX64,
+        const FakeCommand(command: <String>['chmod', '755', '/bin/cache/artifacts']),
+      ]),
+    );
+    final artifacts = LinuxEngineArtifacts(cache, platform: FakePlatform());
+    final updater = FakeArtifactUpdater();
+    final downloads = <String>[];
+    updater.onDownloadZipArchive = (String message, Uri uri, Directory location) {
+      downloads.add(uri.toString());
+    };
+
+    expect(artifacts.version, '3.41.10-ohos-0.0.2-beta.operit.4');
+    await artifacts.updateInner(updater, fileSystem, FakeOperatingSystemUtils());
+    expect(downloads, <String>[
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.4/linux-x64-debug.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.4/linux-x64-profile.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.4/linux-x64-release.zip',
     ]);
   });
 

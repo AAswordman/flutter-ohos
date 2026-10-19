@@ -88,6 +88,21 @@ int64_t fl_view_get_id(FlView* view);
  */
 void fl_view_set_background_color(FlView* view, const GdkRGBA* color);
 
+/** Version of the ordered native-view composition contract. */
+#define FL_NATIVE_VIEW_COMPOSITION_API_VERSION 1
+
+/** Gets the engine-owned overlay used for native platform-view widgets. */
+G_MODULE_EXPORT
+GtkOverlay* fl_view_get_native_view_overlay(FlView* view);
+
+/** Registers a native widget with the identifier used by PlatformViewLayer. */
+G_MODULE_EXPORT
+void fl_view_register_native_view(FlView* view, int64_t id, GtkWidget* widget);
+
+/** Removes a native widget from the composition registry and GTK overlay. */
+G_MODULE_EXPORT
+void fl_view_unregister_native_view(FlView* view, int64_t id);
+
 G_END_DECLS
 
 #endif  // FLUTTER_SHELL_PLATFORM_LINUX_PUBLIC_FLUTTER_LINUX_FL_VIEW_H_

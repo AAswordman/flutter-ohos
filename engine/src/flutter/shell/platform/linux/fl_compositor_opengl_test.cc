@@ -382,3 +382,43 @@ TEST(FlCompositorOpenGLTest, BlitFramebufferNvidia) {
   cairo_surface_destroy(surface);
   cairo_destroy(cr);
 }
+
+// Verifies native layers are retained without erasing Flutter pixels beneath
+// them.
+TEST(FlCompositorOpenGLTest, NativeLayersPreserveStoresAndOffsets) {
+  ::testing::NiceMock<flutter::testing::MockEpoxy> epoxy;
+  g_autoptr(FlDartProject) project = fl_dart_project_new();
+  g_autoptr(FlEngine) engine = fl_engine_new(project);
+  g_autoptr(FlTaskRunner) runner = fl_task_runner_new(engine);
+  g_autoptr(FlOpenGLManager) manager = fl_opengl_manager_new();
+  g_autoptr(FlCompositorOpenGL) compositor =
+      fl_compositor_opengl_new(runner, manager, FALSE);
+  g_autoptr(FlFramebuffer) framebuffer =
+      fl_framebuffer_new(GL_RGBA, 20, 30, FALSE);
+  FlutterBackingStore store = {
+      .type = kFlutterBackingStoreTypeOpenGL,
+      .open_gl = {.framebuffer = {.user_data = framebuffer}}};
+  FlutterPlatformView native = {.identifier = 91};
+  FlutterLayer lower = {.type = kFlutterLayerContentTypeBackingStore,
+                        .backing_store = &store,
+                        .offset = {5, 6},
+                        .size = {20, 30}};
+  FlutterLayer platform = {.type = kFlutterLayerContentTypePlatformView,
+                           .platform_view = &native,
+                           .offset = {10, 20},
+                           .size = {10, 10}};
+  FlutterLayer upper = lower;
+  const FlutterLayer* layers[] = {&lower, &platform, &upper};
+  EXPECT_CALL(epoxy, glBlitFramebuffer(0, 0, 20, 30, 0, 0, 20, 30,
+                                       GL_COLOR_BUFFER_BIT, GL_NEAREST))
+      .Times(2);
+  ASSERT_TRUE(
+      fl_compositor_present_layers(FL_COMPOSITOR(compositor), layers, 3));
+  auto frame = fl_compositor_get_frame(FL_COMPOSITOR(compositor));
+  ASSERT_EQ(frame->layers.size(), 3u);
+  EXPECT_EQ(frame->layers[1].platform_view_id, 91);
+  EXPECT_EQ(frame->layers[0].offset.x, 5);
+  EXPECT_EQ(frame->layers[0].offset.y, 6);
+  EXPECT_NE(frame->layers[0].backing->framebuffer,
+            frame->layers[2].backing->framebuffer);
+}
