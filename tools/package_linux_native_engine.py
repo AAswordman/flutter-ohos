@@ -4,6 +4,7 @@
 import hashlib
 import json
 from pathlib import Path
+import struct
 import subprocess
 import sys
 import zipfile
@@ -19,6 +20,11 @@ def package(root: Path, archive: Path, mode: str, version: str, arch: str) -> Pa
     for required in ['libflutter_linux_gtk.so', 'gen_snapshot', 'flutter_linux/fl_view.h']:
         if required not in files:
             raise RuntimeError(f'Missing GN artifact: {required}')
+    for name in ['libflutter_linux_gtk.so', 'gen_snapshot']:
+        binary = files[name]
+        if binary[:6] != b'\x7fELF\x02\x01' or struct.unpack_from('<H', binary, 18)[0] != {'x64': 62, 'arm64': 183}[arch]:
+            raise RuntimeError(f'Incorrect ELF architecture for {name}: expected {arch}')
+    files['LICENSE'] = (root / 'LICENSE').read_bytes()
     header = files['flutter_linux/fl_view.h'].decode()
     if '#define FL_NATIVE_VIEW_COMPOSITION_API_VERSION 1' not in header:
         raise RuntimeError('The native-composition public contract is missing')

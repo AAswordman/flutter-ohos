@@ -12,7 +12,11 @@ case "$mode" in debug|profile|release) ;; *) echo "Invalid runtime mode: $mode" 
 case "$(uname -m)" in x86_64) arch=x64 ;; aarch64) arch=arm64 ;; *) echo 'Unsupported Linux engine architecture' >&2; exit 2 ;; esac
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
-python3 engine/src/flutter/tools/gn --runtime-mode "$mode" --no-goma
+gn_args=(--runtime-mode "$mode" --no-goma)
+if [[ "$arch" == arm64 ]]; then
+  gn_args+=(--target-os linux --linux-cpu arm64 --target-dir "host_$mode")
+fi
+python3 engine/src/flutter/tools/gn "${gn_args[@]}"
 out="$root/engine/src/out/host_$mode"
 targets=(flutter/shell/platform/linux:flutter_gtk)
 if [[ "$mode" == debug ]]; then targets+=(flutter_linux_unittests); fi
