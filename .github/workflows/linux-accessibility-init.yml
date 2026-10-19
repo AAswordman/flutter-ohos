@@ -1,0 +1,35 @@
+name: Linux Accessibility Initialization
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Draft release containing the built x64 debug engine'
+        required: true
+        default: '3.41.10-ohos-0.0.2-beta.operit.4'
+        type: string
+permissions:
+  contents: read
+jobs:
+  initialization:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install GTK and accessibility runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc pkg-config libgtk-3-dev libepoxy0 libegl1 xvfb dbus-x11 at-spi2-core
+      - name: Download the existing debug engine
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern linux-x64-debug.zip --dir engine-probe
+          unzip -q engine-probe/linux-x64-debug.zip -d engine-probe/sdk
+      - name: Check the real Flutter view initialization
+        run: |
+          gcc tools/linux_accessibility_init_probe.c -I engine-probe/sdk -L engine-probe/sdk -Wl,-rpath,"$PWD/engine-probe/sdk" -lflutter_linux_gtk $(pkg-config --cflags --libs gtk+-3.0) -o engine-probe/init-probe
+          GDK_BACKEND=x11 G_DEBUG=fatal-criticals xvfb-run -a dbus-run-session -- bash -euc '
+            gdbus call --session --dest org.a11y.Bus --object-path /org/a11y/bus --method org.a11y.Bus.GetAddress
+            engine-probe/init-probe
+          '
