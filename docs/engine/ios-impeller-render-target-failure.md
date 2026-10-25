@@ -52,7 +52,8 @@ A broader run with every interactive window enabled exposes the unchanged
 text-frame assertion rejects it. The fixture and assertion are unchanged by
 this fix; this broader interactive run is not reported as passing.
 
-Device Debug, Profile and Release engines build successfully for arm64.
+Device Debug, Profile and Release engines build successfully for arm64; Debug
+simulator engines also build for arm64 and x86_64.
 The final arm64 iOS 27 simulator engine builds and launches the application.
 The welcome page renders normally and the app process remains running. The
 installed framework UUID matches the final engine
@@ -81,5 +82,5 @@ cache matching `bin/internal/engine.version`; the rendering-only engine change
 does not change the compiler or Dart ABI.
 
 Commit and push the final source before tagging or publishing artifacts. The
-release is a prerelease. App SDK selection and TestFlight publication are
-separate integration steps.
+GitHub release is a regular release. App SDK selection and TestFlight
+publication are separate integration steps.
