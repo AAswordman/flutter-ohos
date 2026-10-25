@@ -56,7 +56,7 @@ Device Debug, Profile and Release engines build successfully for arm64.
 The final arm64 iOS 27 simulator engine builds and launches the application.
 The welcome page renders normally and the app process remains running. The
 installed framework UUID matches the final engine
-(`35FC412C-DC8C-310A-8AD4-C9974B8748D7`). This is a startup and first-page smoke
+(`EB500DE9-A849-35E1-84AC-7923255BC38D`). This is a startup and first-page smoke
 test, not a complete chat-session test. No iOS 16 physical-device verification
 has been performed.
 
