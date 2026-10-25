@@ -1607,8 +1607,9 @@ void Canvas::SaveLayer(const Paint& paint,
           /*should_use_onscreen=*/should_use_onscreen             //
       );
       if (!input_texture) {
-        // Validation failures are logged in FlipBackdrop.
-        return;
+        // Validation failures are logged in FlipBackdrop. Preserve this
+        // SaveLayer's matching Restore even when no child pass was created.
+        return SkipUntilMatchingRestore(total_content_depth);
       }
 
       if (will_cache_backdrop_texture) {
@@ -1746,11 +1747,19 @@ bool Canvas::Restore() {
     auto lazy_render_pass = std::move(render_passes_.back());
     render_passes_.pop_back();
     // Force the render pass to be constructed if it never was.
-    lazy_render_pass.GetInlinePassContext()->GetRenderPass();
+    auto* subpass = lazy_render_pass.GetInlinePassContext();
+    const bool has_render_pass = subpass->GetRenderPass() != nullptr;
 
     SaveLayerState save_layer_state = save_layer_state_.back();
     save_layer_state_.pop_back();
     auto global_pass_position = GetGlobalPassPosition();
+    if (!has_render_pass || !subpass->EndPass()) {
+      render_target_failed_ = true;
+      subpass->Deactive();
+      clip_coverage_stack_.PopSubpass();
+      transform_stack_.pop_back();
+      return false;
+    }
 
     std::shared_ptr<Contents> contents = CreateContentsForSubpassTarget(
         save_layer_state.paint,                                    //
@@ -1758,8 +1767,6 @@ bool Canvas::Restore() {
         Matrix::MakeTranslation(Vector3{-global_pass_position}) *  //
             transform_stack_.back().transform                      //
     );
-
-    lazy_render_pass.GetInlinePassContext()->EndPass();
 
     // Round the subpass texture position for pixel alignment with the parent
     // pass render target. By default, we draw subpass textures with nearest
@@ -1802,6 +1809,8 @@ bool Canvas::Restore() {
         // all the previous commands in the active pass).
         auto input_texture = FlipBackdrop(GetGlobalPassPosition());
         if (!input_texture) {
+          clip_coverage_stack_.PopSubpass();
+          transform_stack_.pop_back();
           return false;
         }
 
@@ -1817,17 +1826,18 @@ bool Canvas::Restore() {
       }
     }
 
-    element_entity.Render(
-        renderer_,                                                      //
-        *render_passes_.back().GetInlinePassContext()->GetRenderPass()  //
-    );
+    const auto& parent_pass =
+        render_passes_.back().GetInlinePassContext()->GetRenderPass();
+    const bool success =
+        parent_pass && element_entity.Render(renderer_, *parent_pass);
+    render_target_failed_ |= !success;
     clip_coverage_stack_.PopSubpass();
     transform_stack_.pop_back();
 
     // We don't need to restore clips if a saveLayer was performed, as the clip
     // state is per render target, and no more rendering operations will be
     // performed as the render target workloaded is completed in the restore.
-    return true;
+    return success;
   }
 
   size_t num_clips = transform_stack_.back().num_clips;
@@ -2136,6 +2146,7 @@ void Canvas::AddRenderEntityToCurrentPass(Entity& entity,
     // Failure to produce a render pass should be explained by specific errors
     // in `InlinePassContext::GetRenderPass()`, so avoid log spam and don't
     // append a validation log here.
+    render_target_failed_ = true;
     return;
   }
 
@@ -2179,6 +2190,7 @@ std::shared_ptr<Texture> Canvas::FlipBackdrop(Point global_pass_position,
            "filter.";
     // Preserve stack ownership while propagating failure to frame submission.
     render_target_failed_ = true;
+    rendering_config.GetInlinePassContext()->Deactive();
     render_passes_.emplace_back(std::move(rendering_config));
     return nullptr;
   }

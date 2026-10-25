@@ -23,6 +23,7 @@
 #include "impeller/playground/playground.h"
 #include "impeller/playground/widgets.h"
 #include "impeller/renderer/render_target.h"
+#include "impeller/renderer/testing/mocks.h"
 #include "third_party/abseil-cpp/absl/status/status_matchers.h"
 
 namespace impeller {
@@ -264,6 +265,84 @@ TEST_P(AiksTest, FullCoverageDrawRestartsValidatedPass) {
   EXPECT_TRUE(canvas->GetLocalCoverageLimit().has_value());
   canvas->DrawCircle({50, 50}, 8, {.color = Color::Green()});
   EXPECT_TRUE(canvas->EndReplay());
+}
+
+TEST_P(AiksTest, FailedSubpassCommandsPreserveStackAndAreNotRetried) {
+  ScopedValidationDisable disable_validation;
+  auto real_context = GetContext();
+  for (bool fail_encoding : {false, true}) {
+    auto context = std::make_shared<::testing::NiceMock<MockImpellerContext>>();
+    ON_CALL(*context, GetCapabilities())
+        .WillByDefault(::testing::ReturnRef(real_context->GetCapabilities()));
+    ON_CALL(*context, GetResourceAllocator())
+        .WillByDefault(::testing::Return(real_context->GetResourceAllocator()));
+    ON_CALL(*context, GetShaderLibrary())
+        .WillByDefault(::testing::Return(real_context->GetShaderLibrary()));
+    ON_CALL(*context, GetSamplerLibrary())
+        .WillByDefault(::testing::Return(real_context->GetSamplerLibrary()));
+    ON_CALL(*context, GetPipelineLibrary())
+        .WillByDefault(::testing::Return(real_context->GetPipelineLibrary()));
+    ON_CALL(*context, GetCommandQueue())
+        .WillByDefault(::testing::Return(real_context->GetCommandQueue()));
+    ON_CALL(*context, GetBackendType())
+        .WillByDefault(::testing::Return(real_context->GetBackendType()));
+    ON_CALL(*context, GetRuntimeStageBackend())
+        .WillByDefault(
+            ::testing::Return(real_context->GetRuntimeStageBackend()));
+    ON_CALL(*context, IsValid()).WillByDefault(::testing::Return(true));
+    bool fail_commands = false;
+    ON_CALL(*context, CreateCommandBuffer()).WillByDefault([&]() {
+      if (!fail_commands) {
+        return real_context->CreateCommandBuffer();
+      }
+      if (!fail_encoding) {
+        return std::shared_ptr<CommandBuffer>();
+      }
+      auto buffer =
+          std::make_shared<::testing::NiceMock<MockCommandBuffer>>(context);
+      ON_CALL(*buffer, IsValid()).WillByDefault(::testing::Return(true));
+      ON_CALL(*buffer, OnCreateRenderPass(::testing::_))
+          .WillByDefault([&](RenderTarget target) {
+            auto pass = std::make_shared<::testing::NiceMock<MockRenderPass>>(
+                context, target);
+            ON_CALL(*pass, IsValid()).WillByDefault(::testing::Return(true));
+            EXPECT_CALL(*pass, OnEncodeCommands(::testing::_))
+                .Times(1)
+                .WillOnce(::testing::Return(false));
+            return pass;
+          });
+      return std::static_pointer_cast<CommandBuffer>(buffer);
+    });
+    ContentContext renderer(context, nullptr);
+    auto canvas = CreateTestCanvas(renderer);
+    ASSERT_TRUE(canvas->IsValid());
+    canvas->SaveLayer({}, Rect::MakeLTRB(0, 0, 50, 50), nullptr,
+                      ContentBoundsPromise::kContainsContents, 1);
+    fail_commands = true;
+    EXPECT_FALSE(canvas->Restore());
+    EXPECT_EQ(canvas->GetSaveCount(), 1u);
+    EXPECT_FALSE(canvas->IsValid());
+    fail_commands = false;
+    EXPECT_FALSE(canvas->EndReplay());
+
+    auto backdrop = CreateTestCanvas(renderer, std::nullopt, true);
+    backdrop->SetBackdropData({}, 1);
+    auto blur =
+        flutter::DlImageFilter::MakeBlur(4, 4, flutter::DlTileMode::kClamp);
+    fail_commands = true;
+    backdrop->SaveLayer({}, Rect::MakeLTRB(0, 0, 50, 50), blur.get(),
+                        ContentBoundsPromise::kContainsContents, 1);
+    EXPECT_EQ(backdrop->GetSaveCount(), 2u);
+    EXPECT_TRUE(backdrop->Restore());
+    EXPECT_EQ(backdrop->GetSaveCount(), 1u);
+    EXPECT_FALSE(backdrop->IsValid());
+    fail_commands = false;
+    EXPECT_FALSE(backdrop->EndReplay());
+
+    auto recovered = CreateTestCanvas(renderer);
+    recovered->DrawRect(Rect::MakeLTRB(0, 0, 10, 10), {.color = Color::Red()});
+    EXPECT_TRUE(recovered->EndReplay());
+  }
 }
 
 TEST_P(AiksTest, CanvasCanPushPopCTM) {

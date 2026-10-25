@@ -826,6 +826,58 @@ void main() {
     ]);
   });
 
+  testWithoutContext('iOS artifacts download the Impeller render target fix release', () async {
+    final fileSystem = MemoryFileSystem.test();
+    final cache = Cache.test(
+      fileSystem: fileSystem,
+      platform: FakePlatform(operatingSystem: 'macos'),
+      processManager: FakeProcessManager.any(),
+    );
+    final artifacts = IOSEngineArtifacts(cache, platform: FakePlatform(operatingSystem: 'macos'));
+    final updater = FakeArtifactUpdater();
+    final downloads = <String>[];
+    final destinations = <String>[];
+    updater.onDownloadZipArchive = (String message, Uri uri, Directory location) {
+      downloads.add(uri.toString());
+      destinations.add(location.basename);
+    };
+
+    expect(artifacts.version, '3.41.10-ohos-0.0.2-beta.operit.5');
+    await artifacts.updateInner(updater, fileSystem, FakeOperatingSystemUtils());
+    expect(downloads, <String>[
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.5/ios-debug.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.5/ios-profile.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.5/ios-release.zip',
+    ]);
+    expect(destinations, <String>['ios', 'ios-profile', 'ios-release']);
+  });
+
+  testWithoutContext('iOS artifacts respect platform filtering and explicit precache', () {
+    final cache = Cache.test(processManager: FakeProcessManager.any());
+    final artifacts = IOSEngineArtifacts(cache, platform: FakePlatform());
+    expect(artifacts.getBinaryDirs(), isEmpty);
+    cache.platformOverrideArtifacts = <String>{'ios'};
+    expect(artifacts.getBinaryDirs(), hasLength(3));
+  });
+
+  testWithoutContext('iOS artifact availability checks the pinned GitHub release', () async {
+    final cache = FakeArtifactAvailabilityCache();
+    final artifacts = IOSEngineArtifacts(cache, platform: FakePlatform(operatingSystem: 'macos'));
+    expect(await artifacts.checkForArtifacts('upstream-engine-revision'), isTrue);
+    expect(cache.requests.map((Uri uri) => uri.toString()), <String>[
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.5/ios-debug.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.5/ios-profile.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.5/ios-release.zip',
+    ]);
+  });
+
+  testWithoutContext('iOS artifact availability rejects an incomplete release', () async {
+    final cache = FakeArtifactAvailabilityCache()..failAt = 2;
+    final artifacts = IOSEngineArtifacts(cache, platform: FakePlatform(operatingSystem: 'macos'));
+    expect(await artifacts.checkForArtifacts(null), isFalse);
+    expect(cache.requests, hasLength(2));
+  });
+
   testWithoutContext('Cache can delete stampfiles of artifacts', () {
     final FileSystem fileSystem = MemoryFileSystem.test();
     final artifactSet = FakeIosUsbArtifacts();
@@ -1477,6 +1529,17 @@ class FakeAndroidSdk extends Fake implements AndroidSdk {
   @override
   void reinitialize({FileSystem? fileSystem}) {
     reinitialized = true;
+  }
+}
+
+class FakeArtifactAvailabilityCache extends Fake implements Cache {
+  final requests = <Uri>[];
+  int? failAt;
+
+  @override
+  Future<bool> doesRemoteExist(String message, Uri url) async {
+    requests.add(url);
+    return requests.length != failAt;
   }
 }
 
