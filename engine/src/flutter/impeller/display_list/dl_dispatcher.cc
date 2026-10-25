@@ -1298,8 +1298,14 @@ std::shared_ptr<Texture> DisplayListToTexture(
     context.GetContext()->DisposeThreadLocalCachedResources();
   });
 
+  if (!impeller_dispatcher.IsValid()) {
+    impeller_dispatcher.FinishRecording();
+    return nullptr;
+  }
   display_list->Dispatch(impeller_dispatcher, cull_rect);
-  impeller_dispatcher.FinishRecording();
+  if (!impeller_dispatcher.FinishRecording()) {
+    return nullptr;
+  }
 
   return target.GetRenderTargetTexture();
 }
@@ -1331,11 +1337,14 @@ bool RenderToTarget(ContentContext& context,
     context.GetTextShadowCache().MarkFrameEnd();
   });
 
-  display_list->Dispatch(impeller_dispatcher, cull_rect);
-  impeller_dispatcher.FinishRecording();
+  bool success = impeller_dispatcher.IsValid();
+  if (success) {
+    display_list->Dispatch(impeller_dispatcher, cull_rect);
+  }
+  success = impeller_dispatcher.FinishRecording() && success;
   context.GetLazyGlyphAtlas()->ResetTextFrames();
 
-  return true;
+  return success;
 }
 
 }  // namespace impeller

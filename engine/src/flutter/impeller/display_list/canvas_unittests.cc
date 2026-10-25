@@ -4,15 +4,19 @@
 
 #include <unordered_map>
 
+#include "flutter/display_list/dl_builder.h"
+#include "flutter/display_list/dl_paint.h"
 #include "flutter/display_list/dl_tile_mode.h"
 #include "flutter/display_list/effects/dl_image_filter.h"
 #include "flutter/display_list/geometry/dl_geometry_types.h"
 #include "flutter/testing/testing.h"
 #include "gtest/gtest.h"
+#include "impeller/base/validation.h"
 #include "impeller/core/formats.h"
 #include "impeller/core/texture_descriptor.h"
 #include "impeller/display_list/aiks_unittests.h"
 #include "impeller/display_list/canvas.h"
+#include "impeller/display_list/dl_dispatcher.h"
 #include "impeller/display_list/dl_runtime_effect_impeller.h"
 #include "impeller/display_list/dl_vertices_geometry.h"
 #include "impeller/geometry/geometry_asserts.h"
@@ -108,6 +112,158 @@ TEST_P(AiksTest, TransformMultipliesCorrectly) {
               0,   0,   0,   0,
            -500, 400,   0,   1));
   // clang-format on
+}
+
+// Keeps the real GPU allocator and fails only complete offscreen target
+// creation. Onscreen textures, shaders and command submission still use the
+// real backend.
+class FailingRenderTargetAllocator final : public RenderTargetAllocator {
+ public:
+  explicit FailingRenderTargetAllocator(std::shared_ptr<Allocator> allocator)
+      : RenderTargetAllocator(std::move(allocator)) {}
+
+  bool fail = false;
+  size_t starts = 0;
+  size_t ends = 0;
+
+  void Start() override { starts++; }
+  void End() override { ends++; }
+
+  RenderTarget CreateOffscreen(
+      const Context& context,
+      ISize size,
+      int mip_count,
+      std::string_view label,
+      RenderTarget::AttachmentConfig color_config,
+      std::optional<RenderTarget::AttachmentConfig> stencil_config,
+      const std::shared_ptr<Texture>& existing_color,
+      const std::shared_ptr<Texture>& existing_depth,
+      std::optional<PixelFormat> format) override {
+    if (fail) {
+      return {};
+    }
+    return RenderTargetAllocator::CreateOffscreen(
+        context, size, mip_count, label, color_config, stencil_config,
+        existing_color, existing_depth, format);
+  }
+
+  RenderTarget CreateOffscreenMSAA(
+      const Context& context,
+      ISize size,
+      int mip_count,
+      std::string_view label,
+      RenderTarget::AttachmentConfigMSAA color_config,
+      std::optional<RenderTarget::AttachmentConfig> stencil_config,
+      const std::shared_ptr<Texture>& existing_msaa,
+      const std::shared_ptr<Texture>& existing_resolve,
+      const std::shared_ptr<Texture>& existing_depth,
+      std::optional<PixelFormat> format) override {
+    if (fail) {
+      return {};
+    }
+    return RenderTargetAllocator::CreateOffscreenMSAA(
+        context, size, mip_count, label, color_config, stencil_config,
+        existing_msaa, existing_resolve, existing_depth, format);
+  }
+};
+
+TEST_P(AiksTest, FailedRootReadbackTargetDoesNotAbortAndNextFrameRecovers) {
+  ScopedValidationDisable disable_validation;
+  auto allocator = std::make_shared<FailingRenderTargetAllocator>(
+      GetContext()->GetResourceAllocator());
+  ContentContext context(GetContext(), nullptr, allocator);
+  allocator->fail = true;
+  auto failed = CreateTestCanvas(context, std::nullopt, true);
+  EXPECT_FALSE(failed->IsValid());
+  EXPECT_FALSE(failed->GetLocalCoverageLimit().has_value());
+  EXPECT_FALSE(failed->EndReplay());
+  EXPECT_EQ(allocator->starts, allocator->ends);
+
+  allocator->fail = false;
+  auto recovered = CreateTestCanvas(context, std::nullopt, true);
+  EXPECT_TRUE(recovered->IsValid());
+  EXPECT_TRUE(recovered->GetLocalCoverageLimit().has_value());
+  recovered->DrawRect(Rect::MakeLTRB(0, 0, 20, 20), {.color = Color::Red()});
+  EXPECT_TRUE(recovered->EndReplay());
+  EXPECT_EQ(allocator->starts, allocator->ends);
+}
+
+TEST_P(AiksTest,
+       FailedSaveLayerPreservesNestedSaveRestoreAndReportsFrameFailure) {
+  ScopedValidationDisable disable_validation;
+  auto allocator = std::make_shared<FailingRenderTargetAllocator>(
+      GetContext()->GetResourceAllocator());
+  ContentContext context(GetContext(), nullptr, allocator);
+  auto canvas = CreateTestCanvas(context);
+  ASSERT_TRUE(canvas->IsValid());
+  canvas->SaveLayer({}, Rect::MakeLTRB(0, 0, 75, 75), nullptr,
+                    ContentBoundsPromise::kContainsContents, 4);
+  ASSERT_TRUE(canvas->IsValid());
+  allocator->fail = true;
+  canvas->SaveLayer({}, Rect::MakeLTRB(0, 0, 50, 50), nullptr,
+                    ContentBoundsPromise::kContainsContents, 2);
+  EXPECT_EQ(canvas->GetSaveCount(), 3u);
+  canvas->Save(1);
+  canvas->DrawRect(Rect::MakeLTRB(0, 0, 10, 10), {.color = Color::Red()});
+  EXPECT_TRUE(canvas->Restore());
+  EXPECT_TRUE(canvas->Restore());
+  EXPECT_EQ(canvas->GetSaveCount(), 2u);
+  canvas->DrawRect(Rect::MakeLTRB(0, 0, 10, 10), {.color = Color::Blue()});
+  EXPECT_TRUE(canvas->Restore());
+  EXPECT_EQ(canvas->GetSaveCount(), 1u);
+  EXPECT_FALSE(canvas->IsValid());
+  EXPECT_FALSE(canvas->EndReplay());
+  EXPECT_EQ(allocator->starts, allocator->ends);
+
+  allocator->fail = false;
+  auto recovered = CreateTestCanvas(context);
+  recovered->SaveLayer({}, Rect::MakeLTRB(0, 0, 50, 50), nullptr,
+                       ContentBoundsPromise::kContainsContents, 1);
+  recovered->DrawRect(Rect::MakeLTRB(0, 0, 10, 10), {.color = Color::Red()});
+  EXPECT_TRUE(recovered->Restore());
+  EXPECT_TRUE(recovered->EndReplay());
+  EXPECT_EQ(allocator->starts, allocator->ends);
+}
+
+TEST_P(AiksTest, InvalidRenderTargetReturnsFrameFailureRatherThanSuccess) {
+  ScopedValidationDisable disable_validation;
+  ContentContext context(GetContext(), nullptr);
+  flutter::DisplayListBuilder builder;
+  builder.DrawRect(flutter::DlRect::MakeLTRB(0, 0, 10, 10), flutter::DlPaint());
+  EXPECT_FALSE(RenderToTarget(context, RenderTarget(), builder.Build(),
+                              Rect::MakeLTRB(0, 0, 100, 100), true, false));
+}
+
+TEST_P(AiksTest, LazyRenderPassRejectsMissingAttachments) {
+  ScopedValidationDisable disable_validation;
+  ContentContext context(GetContext(), nullptr);
+  auto empty = std::make_unique<EntityPassTarget>(RenderTarget(), false, false);
+  EXPECT_FALSE(
+      LazyRenderingConfig::Make(context, std::move(empty)).has_value());
+  EXPECT_FALSE(LazyRenderingConfig::Make(context, nullptr).has_value());
+
+  auto color_only = context.GetRenderTargetCache()->CreateOffscreen(
+      *GetContext(), {32, 32}, 1, "Missing depth and stencil",
+      RenderTarget::kDefaultColorAttachmentConfig, std::nullopt);
+  ASSERT_TRUE(color_only.IsValid());
+  auto incomplete =
+      std::make_unique<EntityPassTarget>(color_only, false, false);
+  EXPECT_FALSE(
+      LazyRenderingConfig::Make(context, std::move(incomplete)).has_value());
+}
+
+TEST_P(AiksTest, FullCoverageDrawRestartsValidatedPass) {
+  ContentContext context(GetContext(), nullptr);
+  auto canvas = CreateTestCanvas(context);
+  ASSERT_TRUE(canvas->IsValid());
+  // Start recording commands before the full-coverage draw discards them.
+  canvas->DrawCircle({20, 20}, 8, {.color = Color::Red()});
+  canvas->DrawRect(Rect::MakeLTRB(0, 0, 100, 100),
+                   {.color = Color::Blue(), .blend_mode = BlendMode::kSrc});
+  EXPECT_TRUE(canvas->IsValid());
+  EXPECT_TRUE(canvas->GetLocalCoverageLimit().has_value());
+  canvas->DrawCircle({50, 50}, 8, {.color = Color::Green()});
+  EXPECT_TRUE(canvas->EndReplay());
 }
 
 TEST_P(AiksTest, CanvasCanPushPopCTM) {

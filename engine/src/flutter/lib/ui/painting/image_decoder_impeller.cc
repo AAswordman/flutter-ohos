@@ -99,12 +99,6 @@ class MallocDeviceBuffer : public impeller::DeviceBuffer {
   FML_DISALLOW_COPY_AND_ASSIGN(MallocDeviceBuffer);
 };
 
-#ifdef FML_OS_ANDROID
-static constexpr bool kShouldUseMallocDeviceBuffer = true;
-#else
-static constexpr bool kShouldUseMallocDeviceBuffer = false;
-#endif  // FML_OS_ANDROID
-
 #ifdef FML_OS_OHOS
 // [an optimization method]
 // By default, Android uses Skia rendering and OHOS platform uses Impeller rendering.

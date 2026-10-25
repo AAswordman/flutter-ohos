@@ -279,6 +279,7 @@ if (current_os == "win") {
   is_posix = true
   is_win = false
   is_wasm = false
+  is_qnx = false
 } else if (current_os == "ohos") {
   is_android = false
   is_chromeos = false

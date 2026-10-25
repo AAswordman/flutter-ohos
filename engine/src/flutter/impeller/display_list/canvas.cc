@@ -399,7 +399,7 @@ size_t Canvas::GetSaveCount() const {
 }
 
 bool Canvas::IsSkipping() const {
-  return transform_stack_.back().skipping;
+  return render_passes_.empty() || transform_stack_.back().skipping;
 }
 
 void Canvas::RestoreToCount(size_t count) {
@@ -1337,8 +1337,16 @@ void Canvas::DrawAtlas(const std::shared_ptr<AtlasContents>& atlas_contents,
 /// Compositor Functionality
 /////////////////////////////////////////
 
+bool Canvas::IsValid() const {
+  return !render_target_failed_ && !render_passes_.empty();
+}
+
 void Canvas::SetupRenderPass() {
   renderer_.GetRenderTargetCache()->Start();
+  if (!render_target_.IsValid()) {
+    render_target_failed_ = true;
+    return;
+  }
   ColorAttachment color0 = render_target_.GetColorAttachment(0);
 
   auto& stencil_attachment = render_target_.GetStencilAttachment();
@@ -1356,6 +1364,12 @@ void Canvas::SetupRenderPass() {
         "ImpellerOnscreen", kDefaultStencilConfig);
   }
 
+  if (!render_target_.GetDepthAttachment().has_value() ||
+      !render_target_.GetStencilAttachment().has_value()) {
+    render_target_failed_ = true;
+    return;
+  }
+
   // Set up the clear color of the root pass.
   color0.clear_color = Color::BlackTransparent();
   render_target_.SetColorAttachment(color0, 0);
@@ -1370,16 +1384,26 @@ void Canvas::SetupRenderPass() {
         CreateRenderTarget(renderer_,                  //
                            color0.texture->GetSize(),  //
                            /*clear_color=*/Color::BlackTransparent());
-    render_passes_.push_back(
-        LazyRenderingConfig(renderer_, std::move(entity_pass_target)));
+    auto pass =
+        LazyRenderingConfig::Make(renderer_, std::move(entity_pass_target));
+    if (!pass.has_value()) {
+      render_target_failed_ = true;
+      return;
+    }
+    render_passes_.push_back(std::move(pass.value()));
   } else {
     auto entity_pass_target = std::make_unique<EntityPassTarget>(
         render_target_,                                                    //
         renderer_.GetDeviceCapabilities().SupportsReadFromResolve(),       //
         renderer_.GetDeviceCapabilities().SupportsImplicitResolvingMSAA()  //
     );
-    render_passes_.push_back(
-        LazyRenderingConfig(renderer_, std::move(entity_pass_target)));
+    auto pass =
+        LazyRenderingConfig::Make(renderer_, std::move(entity_pass_target));
+    if (!pass.has_value()) {
+      render_target_failed_ = true;
+      return;
+    }
+    render_passes_.push_back(std::move(pass.value()));
   }
 }
 
@@ -1422,12 +1446,15 @@ std::optional<Rect> Canvas::GetLocalCoverageLimit() const {
 
   Rect current_clip_coverage = maybe_current_clip_coverage.value();
 
-  FML_CHECK(!render_passes_.empty());
+  if (render_passes_.empty()) {
+    return std::nullopt;
+  }
   const LazyRenderingConfig& back_render_pass = render_passes_.back();
   std::shared_ptr<Texture> back_texture =
       back_render_pass.GetInlinePassContext()->GetTexture();
-  FML_CHECK(back_texture) << "Context is valid:"
-                          << back_render_pass.GetInlinePassContext()->IsValid();
+  if (!back_texture) {
+    return std::nullopt;
+  }
 
   // The maximum coverage of the subpass. Subpasses textures should never
   // extend outside the parent pass texture or the current clip coverage.
@@ -1642,12 +1669,14 @@ void Canvas::SaveLayer(const Paint& paint,
   paint_copy.color.alpha *= transform_stack_.back().distributed_opacity;
   transform_stack_.back().distributed_opacity = 1.0;
 
-  render_passes_.push_back(
-      LazyRenderingConfig(renderer_,                                    //
-                          CreateRenderTarget(renderer_,                 //
-                                             subpass_size,              //
-                                             Color::BlackTransparent()  //
-                                             )));
+  auto pass = LazyRenderingConfig::Make(
+      renderer_,
+      CreateRenderTarget(renderer_, subpass_size, Color::BlackTransparent()));
+  if (!pass.has_value()) {
+    render_target_failed_ = true;
+    return SkipUntilMatchingRestore(total_content_depth);
+  }
+  render_passes_.push_back(std::move(pass.value()));
   save_layer_state_.push_back(SaveLayerState{
       paint_copy, subpass_coverage.Shift(-coverage_origin_adjustment)});
 
@@ -2018,7 +2047,7 @@ void Canvas::AddRenderEntityToCurrentPass(Entity& entity,
   // 2. renderpass is active: drop the command recorded before and render the
   // solid color to replace it - occlusion culling.
   std::optional<Color> maybe_color = entity.AsBackgroundColor(
-      render_passes_.back().inline_pass_context_->GetTexture()->GetSize());
+      render_passes_.back().GetInlinePassContext()->GetTexture()->GetSize());
   if (maybe_color.has_value()) {
     if (render_passes_.back().IsApplyingClearColor()) {
       Color color = maybe_color.value();
@@ -2042,21 +2071,11 @@ void Canvas::AddRenderEntityToCurrentPass(Entity& entity,
            entity.GetBlendMode() == BlendMode::kClear ||
            (entity.GetBlendMode() == BlendMode::kSrcOver &&
             maybe_color.value().IsOpaque()))) {
-        LazyRenderingConfig rendering_config = std::move(render_passes_.back());
-        render_passes_.pop_back();
-        // drop the pass_ to prevent the pass_ being submit when
-        // ~InlinePassContext is called.
-        rendering_config.inline_pass_context_->Deactive();
-        ColorAttachment attachment =
-            rendering_config.entity_pass_target_->GetRenderTarget()
-                .GetColorAttachment(0);
-        attachment.clear_color = entity.GetBlendMode() == BlendMode::kClear
-                                     ? Color::BlackTransparent()
-                                     : maybe_color.value();
-        rendering_config.entity_pass_target_->GetRenderTarget()
-            .SetColorAttachment(attachment, 0u);
-        render_passes_.push_back(LazyRenderingConfig(
-            renderer_, std::move(rendering_config.entity_pass_target_)));
+        // Reuse the validated target; only discard the occluded commands.
+        render_passes_.back().RestartWithClearColor(
+            renderer_, entity.GetBlendMode() == BlendMode::kClear
+                           ? Color::BlackTransparent()
+                           : maybe_color.value());
         return;
       }
     }
@@ -2158,9 +2177,8 @@ std::shared_ptr<Texture> Canvas::FlipBackdrop(Point global_pass_position,
         << "Failed to end the current render pass in order to read from "
            "the backdrop texture and apply an advanced blend or backdrop "
            "filter.";
-    // Note: adding this render pass ensures there are no later crashes from
-    // unbalanced save layers. Ideally, this method would return false and the
-    // renderer could handle that by terminating dispatch.
+    // Preserve stack ownership while propagating failure to frame submission.
+    render_target_failed_ = true;
     render_passes_.emplace_back(std::move(rendering_config));
     return nullptr;
   }
@@ -2172,7 +2190,7 @@ std::shared_ptr<Texture> Canvas::FlipBackdrop(Point global_pass_position,
     VALIDATION_LOG << "Failed to fetch the color texture in order to "
                       "apply an advanced blend or backdrop filter.";
 
-    // Note: see above.
+    render_target_failed_ = true;
     render_passes_.emplace_back(std::move(rendering_config));
     return nullptr;
   }
@@ -2192,8 +2210,14 @@ std::shared_ptr<Texture> Canvas::FlipBackdrop(Point global_pass_position,
         renderer_.GetDeviceCapabilities().SupportsReadFromResolve(),       //
         renderer_.GetDeviceCapabilities().SupportsImplicitResolvingMSAA()  //
     );
-    render_passes_.push_back(
-        LazyRenderingConfig(renderer_, std::move(entity_pass_target)));
+    auto pass =
+        LazyRenderingConfig::Make(renderer_, std::move(entity_pass_target));
+    if (!pass.has_value()) {
+      render_target_failed_ = true;
+      render_passes_.emplace_back(std::move(rendering_config));
+      return nullptr;
+    }
+    render_passes_.push_back(std::move(pass.value()));
     requires_readback_ = false;
   } else {
     render_passes_.emplace_back(std::move(rendering_config));
@@ -2203,8 +2227,13 @@ std::shared_ptr<Texture> Canvas::FlipBackdrop(Point global_pass_position,
       render_passes_.back().GetEntityPassTarget()->RemoveSecondary();
     }
   }
-  RenderPass& current_render_pass =
-      *render_passes_.back().GetInlinePassContext()->GetRenderPass();
+  const auto& pass =
+      render_passes_.back().GetInlinePassContext()->GetRenderPass();
+  if (!pass) {
+    render_target_failed_ = true;
+    return nullptr;
+  }
+  RenderPass& current_render_pass = *pass;
 
   // Eagerly restore the BDF contents.
 
@@ -2260,6 +2289,9 @@ bool Canvas::SupportsBlitToOnscreen() const {
 
 bool Canvas::BlitToOnscreen(bool is_onscreen) {
   auto command_buffer = renderer_.GetContext()->CreateCommandBuffer();
+  if (!command_buffer) {
+    return false;
+  }
   command_buffer->SetLabel("EntityPass Root Command Buffer");
   auto offscreen_target = render_passes_.back()
                               .GetInlinePassContext()
@@ -2267,14 +2299,20 @@ bool Canvas::BlitToOnscreen(bool is_onscreen) {
                               .GetRenderTarget();
   if (SupportsBlitToOnscreen()) {
     auto blit_pass = command_buffer->CreateBlitPass();
-    blit_pass->AddCopy(offscreen_target.GetRenderTargetTexture(),
-                       render_target_.GetRenderTargetTexture());
+    if (!blit_pass ||
+        !blit_pass->AddCopy(offscreen_target.GetRenderTargetTexture(),
+                            render_target_.GetRenderTargetTexture())) {
+      return false;
+    }
     if (!blit_pass->EncodeCommands()) {
       VALIDATION_LOG << "Failed to encode root pass blit command.";
       return false;
     }
   } else {
     auto render_pass = command_buffer->CreateRenderPass(render_target_);
+    if (!render_pass) {
+      return false;
+    }
     render_pass->SetLabel("EntityPass Root Render Pass");
 
     {
@@ -2321,30 +2359,47 @@ bool Canvas::EnsureFinalMipmapGeneration() const {
   if (!blit_pass) {
     return false;
   }
-  blit_pass->GenerateMipmap(render_target_.GetRenderTargetTexture());
-  blit_pass->EncodeCommands();
+  if (!blit_pass->GenerateMipmap(render_target_.GetRenderTargetTexture()) ||
+      !blit_pass->EncodeCommands()) {
+    return false;
+  }
   return renderer_.GetContext()->EnqueueCommandBuffer(std::move(cmd_buffer));
 }
 
-void Canvas::EndReplay() {
-  FML_DCHECK(render_passes_.size() == 1u);
-  render_passes_.back().GetInlinePassContext()->GetRenderPass();
-  render_passes_.back().GetInlinePassContext()->EndPass(
-      /*is_onscreen=*/!requires_readback_ && is_onscreen_);
+bool Canvas::EndReplay() {
+  FML_DCHECK(render_passes_.size() <= 1u);
+  bool success = IsValid();
+  if (!render_passes_.empty()) {
+    auto* pass = render_passes_.back().GetInlinePassContext();
+    if (success) {
+      success = pass->GetRenderPass() != nullptr;
+    }
+    // A failed frame must not submit/present its onscreen surface. End an
+    // already-active pass as offscreen so its owned resources are released.
+    success = pass->EndPass(/*is_onscreen=*/success && !requires_readback_ &&
+                            is_onscreen_) &&
+              success;
+    if (!success) {
+      // Do not retry a failed encode from the InlinePassContext destructor.
+      pass->Deactive();
+    }
+  }
   backdrop_data_.clear();
 
   // If requires_readback_ was true, then we rendered to an offscreen texture
   // instead of to the onscreen provided in the render target. Now we need to
   // draw or blit the offscreen back to the onscreen.
-  if (requires_readback_) {
-    BlitToOnscreen(/*is_onscreen_=*/is_onscreen_);
+  if (success && requires_readback_) {
+    success = BlitToOnscreen(/*is_onscreen_=*/is_onscreen_);
   }
-  if (!EnsureFinalMipmapGeneration()) {
+  if (success && !EnsureFinalMipmapGeneration()) {
+    success = false;
     VALIDATION_LOG << "Failed to generate onscreen mipmaps.";
   }
   if (!renderer_.GetContext()->FlushCommandBuffers()) {
     // Not much we can do.
     VALIDATION_LOG << "Failed to submit command buffers";
+    success = false;
   }
   render_passes_.clear();
   renderer_.GetRenderTargetCache()->End();
@@ -2352,12 +2407,39 @@ void Canvas::EndReplay() {
 
   Reset();
   Initialize(initial_cull_rect_);
+  return success;
+}
+
+std::optional<LazyRenderingConfig> LazyRenderingConfig::Make(
+    ContentContext& renderer,
+    std::unique_ptr<EntityPassTarget> entity_pass_target) {
+  if (!entity_pass_target || !entity_pass_target->IsValid()) {
+    return std::nullopt;
+  }
+  const auto& target = entity_pass_target->GetRenderTarget();
+  if (!target.GetRenderTargetTexture() ||
+      !target.GetDepthAttachment().has_value() ||
+      !target.GetStencilAttachment().has_value()) {
+    return std::nullopt;
+  }
+  return LazyRenderingConfig(renderer, std::move(entity_pass_target));
 }
 
 LazyRenderingConfig::LazyRenderingConfig(
     ContentContext& renderer,
     std::unique_ptr<EntityPassTarget> p_entity_pass_target)
     : entity_pass_target_(std::move(p_entity_pass_target)) {
+  inline_pass_context_ =
+      std::make_unique<InlinePassContext>(renderer, *entity_pass_target_);
+}
+
+void LazyRenderingConfig::RestartWithClearColor(ContentContext& renderer,
+                                                Color color) {
+  inline_pass_context_->Deactive();
+  ColorAttachment attachment =
+      entity_pass_target_->GetRenderTarget().GetColorAttachment(0);
+  attachment.clear_color = color;
+  entity_pass_target_->GetRenderTarget().SetColorAttachment(attachment, 0u);
   inline_pass_context_ =
       std::make_unique<InlinePassContext>(renderer, *entity_pass_target_);
 }
