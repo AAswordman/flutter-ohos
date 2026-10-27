@@ -988,6 +988,9 @@ void main() {
           expect(log, isEmpty);
       }
       await gesture.up();
+      await tester.pumpAndSettle();
+      // Finish the OHOS frame-rate velocity timer after handle animations.
+      await tester.pump(const Duration(milliseconds: 500));
     },
     variant: TargetPlatformVariant.all(),
   );
@@ -5125,6 +5128,7 @@ void main() {
         final bool meta;
         switch (defaultTargetPlatform) {
           case TargetPlatform.android:
+          case TargetPlatform.ohos:
           case TargetPlatform.fuchsia:
           case TargetPlatform.linux:
           case TargetPlatform.windows:
@@ -5565,6 +5569,7 @@ void main() {
 
       switch (defaultTargetPlatform) {
         case TargetPlatform.android:
+        case TargetPlatform.ohos:
         case TargetPlatform.iOS:
         case TargetPlatform.fuchsia:
           expect(regionState.selectionOverlay, isNotNull);

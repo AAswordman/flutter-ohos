@@ -2446,6 +2446,16 @@ abstract class MultiSelectableSelectionContainerDelegate extends SelectionContai
         if (!_scheduledSelectableUpdate) {
           return;
         }
+        if (!hasSize) {
+          // An obscured OverlayEntry can build without ever being laid out.
+          // Keep its additions pending until a later frame lays it out,
+          // without requesting a frame or spinning in microtasks while hidden.
+          SchedulerBinding.instance.addPostFrameCallback(
+            runScheduledTask,
+            debugLabel: 'SelectionContainer.waitForLayout',
+          );
+          return;
+        }
         _scheduledSelectableUpdate = false;
         _updateSelectables();
       }
@@ -2461,6 +2471,9 @@ abstract class MultiSelectableSelectionContainerDelegate extends SelectionContai
           runScheduledTask,
           debugLabel: 'SelectionContainer.runScheduledTask',
         );
+        // Additions can propagate from nested containers after the frame's
+        // microtasks. Make sure that their parent gets a frame to process them.
+        SchedulerBinding.instance.ensureVisualUpdate();
       }
     }
   }

@@ -309,16 +309,14 @@ abstract class SelectionContainerDelegate implements SelectionHandler, Selection
 
   /// Whether the [SelectionContainer] has undergone layout and has a size.
   ///
+  /// Returns false if the delegate has no associated render object.
+  ///
   /// See also:
   ///
   ///  * [RenderBox.hasSize], which is used internally by this method.
   bool get hasSize {
-    assert(
-      _selectionContainerContext?.findRenderObject() != null,
-      'The _selectionContainerContext must have a renderObject, such as after the first build has completed.',
-    );
-    final box = _selectionContainerContext!.findRenderObject()! as RenderBox;
-    return box.hasSize;
+    final RenderObject? renderObject = _selectionContainerContext?.findRenderObject();
+    return renderObject is RenderBox && renderObject.hasSize;
   }
 
   /// Gets the size of the [SelectionContainer] of this delegate.
