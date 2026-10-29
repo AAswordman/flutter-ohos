@@ -93,10 +93,11 @@ bool Surface::IsValid() const {
 }
 
 bool Surface::SupportsPartialRepaint() const {
-  // EGL_EXT_buffer_age is absent on some drivers (e.g. Adreno 6xx on MIUI).
-  // Without it we assume the worst-case buffer age (see InitialDamage),
-  // which over-repaints slightly but stays correct.
-  return swap_buffers_with_damage_ != nullptr;
+  // EGL_EXT_buffer_age is required. Without it the stale region of a back
+  // buffer cannot be known reliably: the age is unbounded when frames are
+  // intermittent (e.g. after idle), assuming a worst case under-repaints, and
+  // some drivers additionally mishandle the swap-with-damage hint.
+  return has_buffer_age_ && swap_buffers_with_damage_ != nullptr;
 }
 
 bool Surface::RectToEGL(const IRect& rect, EGLint out_rect[4]) const {
