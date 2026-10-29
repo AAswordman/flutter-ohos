@@ -65,10 +65,16 @@ static std::shared_ptr<impeller::Context> CreateImpellerContext(
       FML_LOG(IMPORTANT) << "Using the Impeller rendering backend (Vulkan).";
     }
   }
-  if (context && context->GetDriverInfo()->IsKnownBadDriver()) {
+  if (context && !p_settings.allow_bad_vulkan_driver &&
+      context->GetDriverInfo()->IsKnownBadDriver()) {
     FML_LOG(INFO)
         << "Known bad Vulkan driver encountered, falling back to OpenGLES.";
     return nullptr;
+  }
+  if (context && p_settings.allow_bad_vulkan_driver) {
+    FML_LOG(IMPORTANT)
+        << "Known bad Vulkan driver encountered, but continuing on the "
+           "explicitly selected Vulkan backend.";
   }
 
   return context;
