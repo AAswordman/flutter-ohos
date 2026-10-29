@@ -37,6 +37,10 @@ unsigned int AndroidImageGenerator::GetPlayCount() const {
   return 1;
 }
 
+uint32_t AndroidImageGenerator::GetColorSpace(unsigned int frame_index) {
+  return 0;
+}
+
 const ImageGenerator::FrameInfo AndroidImageGenerator::GetFrameInfo(
     unsigned int frame_index) {
   return {.required_frame = std::nullopt,

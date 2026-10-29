@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "display_list/dl_builder.h"
@@ -966,6 +967,7 @@ bool Rasterizer::ShouldSkipNoDamageLayerTree(flutter::LayerTree& layer_tree, int
       surface_->EnableRasterCache(), // has_raster_cache
       !surface_->GetContext()); // impeller_enabled
     if (clip_rect.has_value() && clip_rect->IsEmpty()) {
+      TRACE_EVENT0("flutter", "SkipNoDamageFrame");
       return true;
     }
   }

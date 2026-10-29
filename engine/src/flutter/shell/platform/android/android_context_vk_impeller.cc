@@ -49,10 +49,13 @@ static std::shared_ptr<impeller::Context> CreateImpellerContext(
   settings.enable_validation = p_settings.enable_validation;
   settings.enable_gpu_tracing = p_settings.enable_gpu_tracing;
   settings.enable_surface_control = p_settings.enable_surface_control;
+  settings.enable_partial_repaint = p_settings.enable_partial_repaint;
   settings.flags = p_settings.impeller_flags;
 
   auto context = impeller::ContextVK::Create(std::move(settings));
 
+  FML_LOG(IMPORTANT) << "AndroidContextVKImpeller: enable_partial_repaint="
+                     << p_settings.enable_partial_repaint;
   if (!p_settings.quiet) {
     if (context && impeller::CapabilitiesVK::Cast(*context->GetCapabilities())
                        .AreValidationsEnabled()) {

@@ -8,7 +8,9 @@
 #include <sys/system_properties.h>
 
 #include <array>
+#include <deque>
 #include <list>
+#include <string>
 
 #include "flutter/fml/trace_event.h"
 
@@ -60,27 +62,194 @@ void LogLastEGLError() {
   FML_LOG(ERROR) << "Unknown EGL Error";
 }
 
+namespace {
+
+// The maximum number of frames worth of damage to remember. Some devices use
+// quadruple buffering, so the age of a back buffer may be as high as 4.
+constexpr size_t kMaxDamageHistorySize = 4u;
+
+bool HasEGLExtension(EGLDisplay display, const char* extension) {
+  const char* extensions = eglQueryString(display, EGL_EXTENSIONS);
+  if (extensions == nullptr) {
+    return false;
+  }
+  const std::string all_extensions(extensions);
+  const std::string target(extension);
+  size_t position = all_extensions.find(target);
+  while (position != std::string::npos) {
+    const bool starts_at_boundary =
+        position == 0u || all_extensions[position - 1u] == ' ';
+    const size_t end = position + target.size();
+    const bool ends_at_boundary =
+        end == all_extensions.size() || all_extensions[end] == ' ';
+    if (starts_at_boundary && ends_at_boundary) {
+      return true;
+    }
+    position = all_extensions.find(target, position + 1u);
+  }
+  return false;
+}
+
+// Convert a rect from the top-left origin space used by the engine to the
+// bottom-left origin space used by EGL. Returns false if the surface size is
+// unknown.
+bool RectToEGL(EGLDisplay display,
+               EGLSurface surface,
+               const DlIRect& rect,
+               EGLint out_rect[4]) {
+  EGLint height = 0;
+  if (eglQuerySurface(display, surface, EGL_HEIGHT, &height) != EGL_TRUE) {
+    return false;
+  }
+  out_rect[0] = static_cast<EGLint>(rect.GetX());
+  out_rect[1] = static_cast<EGLint>(height - (rect.GetY() + rect.GetHeight()));
+  out_rect[2] = static_cast<EGLint>(rect.GetWidth());
+  out_rect[3] = static_cast<EGLint>(rect.GetHeight());
+  return true;
+}
+
+}  // namespace
+
 class AndroidEGLSurfaceDamage {
  public:
-  void init(EGLDisplay display, EGLContext context) {}
+  void init(EGLDisplay display, EGLContext context) {
+    if (display == EGL_NO_DISPLAY) {
+      return;
+    }
+
+    // EGL_KHR_partial_update is intentionally not used: Adreno drivers reject
+    // eglSetDamageRegionKHR with EGL_BAD_ACCESS, and the region is only a
+    // tile-rendering optimization - correctness comes from the buffer age and
+    // the swap-with-damage hint below.
+
+    if (HasEGLExtension(display, "EGL_EXT_swap_buffers_with_damage")) {
+      swap_buffers_with_damage_ =
+          reinterpret_cast<PFNEGLSWAPBUFFERSWITHDAMAGEKHRPROC>(
+              eglGetProcAddress("eglSwapBuffersWithDamageEXT"));
+    }
+    if (swap_buffers_with_damage_ == nullptr &&
+        HasEGLExtension(display, "EGL_KHR_swap_buffers_with_damage")) {
+      swap_buffers_with_damage_ =
+          reinterpret_cast<PFNEGLSWAPBUFFERSWITHDAMAGEKHRPROC>(
+              eglGetProcAddress("eglSwapBuffersWithDamageKHR"));
+    }
+
+    has_buffer_age_ = HasEGLExtension(display, "EGL_EXT_buffer_age");
+
+    FML_LOG(IMPORTANT) << "EGL damage init: swap_with_damage="
+                       << (swap_buffers_with_damage_ != nullptr)
+                       << " set_damage_region="
+                       << (set_damage_region_ != nullptr)
+                       << " buffer_age=" << has_buffer_age_;
+  }
 
   void SetDamageRegion(EGLDisplay display,
                        EGLSurface surface,
-                       const std::optional<DlIRect>& region) {}
+                       const std::optional<DlIRect>& region) {
+    if (set_damage_region_ == nullptr || !region.has_value()) {
+      return;
+    }
+    EGLint rect[4] = {};
+    if (!RectToEGL(display, surface, *region, rect)) {
+      return;
+    }
+    if (set_damage_region_(display, surface, rect, 1) != EGL_TRUE) {
+      LogLastEGLError();
+    }
+  }
 
-  /// This was disabled after discussion in
-  /// https://github.com/flutter/flutter/issues/123353
-  bool SupportsPartialRepaint() const { return false; }
+  bool SupportsPartialRepaint() const {
+    // EGL_EXT_buffer_age is absent on some drivers (e.g. Adreno 6xx on MIUI).
+    // Without it we assume the worst-case buffer age (see InitialDamage),
+    // which over-repaints slightly but stays correct.
+    return swap_buffers_with_damage_ != nullptr;
+  }
 
   std::optional<DlIRect> InitialDamage(EGLDisplay display, EGLSurface surface) {
-    return std::nullopt;
+    if (!SupportsPartialRepaint()) {
+      return std::nullopt;
+    }
+
+    EGLint buffer_age = 0;
+    if (has_buffer_age_) {
+      if (eglQuerySurface(display, surface, EGL_BUFFER_AGE_EXT, &buffer_age) !=
+              EGL_TRUE ||
+          buffer_age <= 0) {
+        // The contents of the back buffer are undefined. Repaint everything.
+        return std::nullopt;
+      }
+    } else {
+      // No buffer age extension: assume the maximum buffering this device
+      // may use, so the union below covers every possibly-stale region.
+      buffer_age = static_cast<EGLint>(kMaxDamageHistorySize);
+    }
+
+    if (buffer_age == 1) {
+      // This back buffer was presented on the previous frame and is up to date.
+      return DlIRect();
+    }
+
+    const size_t required_history = static_cast<size_t>(buffer_age - 1);
+    if (damage_history_.size() < required_history) {
+      // Not enough history to determine what is stale. Repaint everything.
+      return std::nullopt;
+    }
+
+    DlIRect existing_damage;
+    size_t i = 0u;
+    for (auto it = damage_history_.rbegin();
+         it != damage_history_.rend() && i < required_history; ++it, ++i) {
+      existing_damage = existing_damage.Union(*it);
+    }
+    return existing_damage;
   }
 
   bool SwapBuffersWithDamage(EGLDisplay display,
                              EGLSurface surface,
                              const std::optional<DlIRect>& damage) {
-    return eglSwapBuffers(display, surface);
+    bool result = false;
+    EGLint rect[4] = {};
+    if (damage.has_value() && swap_buffers_with_damage_ != nullptr &&
+        RectToEGL(display, surface, *damage, rect)) {
+      result = swap_buffers_with_damage_(display, surface, rect, 1) == EGL_TRUE;
+      if (!result) {
+        LogLastEGLError();
+      }
+    } else {
+      result = eglSwapBuffers(display, surface) == EGL_TRUE;
+    }
+    if (result) {
+      RecordFrameDamage(display, surface, damage);
+    }
+    return result;
   }
+
+ private:
+  void RecordFrameDamage(EGLDisplay display,
+                         EGLSurface surface,
+                         const std::optional<DlIRect>& damage) {
+    DlIRect recorded;
+    if (damage.has_value()) {
+      recorded = *damage;
+    } else {
+      EGLint width = 0;
+      EGLint height = 0;
+      if (eglQuerySurface(display, surface, EGL_WIDTH, &width) != EGL_TRUE ||
+          eglQuerySurface(display, surface, EGL_HEIGHT, &height) != EGL_TRUE) {
+        return;
+      }
+      recorded = DlIRect::MakeWH(width, height);
+    }
+    damage_history_.push_back(recorded);
+    while (damage_history_.size() > kMaxDamageHistorySize) {
+      damage_history_.pop_front();
+    }
+  }
+
+  PFNEGLSETDAMAGEREGIONKHRPROC set_damage_region_ = nullptr;
+  PFNEGLSWAPBUFFERSWITHDAMAGEKHRPROC swap_buffers_with_damage_ = nullptr;
+  bool has_buffer_age_ = false;
+  std::deque<DlIRect> damage_history_;
 };
 
 AndroidEGLSurface::AndroidEGLSurface(EGLSurface surface,

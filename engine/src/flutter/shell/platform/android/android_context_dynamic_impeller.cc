@@ -124,6 +124,7 @@ GetActualRenderingAPIForImpeller(
 #endif  // FLUTTER_RUNTIME_MODE == FLUTTER_RUNTIME_MODE_DEBUG
           .enable_gpu_tracing = settings.enable_gpu_tracing,
           .enable_surface_control = settings.enable_surface_control,
+          .enable_partial_repaint = settings.enable_partial_repaint,
           .impeller_flags =
               {
                   .lazy_shader_mode = settings.impeller_flags.lazy_shader_mode,
@@ -185,7 +186,7 @@ void AndroidContextDynamicImpeller::SetupImpellerContext() {
   if (!vk_context_) {
     gl_context_ = std::make_shared<AndroidContextGLImpeller>(
         std::make_unique<impeller::egl::Display>(),
-        settings_.enable_gpu_tracing);
+        settings_.enable_gpu_tracing, settings_.enable_partial_repaint);
   }
 }
 

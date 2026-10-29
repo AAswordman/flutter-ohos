@@ -287,6 +287,9 @@ DEF_SWITCH(DisableMergedPlatformUIThread,
 DEF_SWITCH(EnableAndroidSurfaceControl,
            "enable-surface-control",
            "Enable the SurfaceControl backed swapchain when supported.")
+DEF_SWITCH(EnablePartialRepaint,
+           "enable-partial-repaint",
+           "Enable partial repaint on Impeller Vulkan surfaces when supported.")
 DEF_SWITCH(EnableFlutterGPU,
            "enable-flutter-gpu",
            "Whether Flutter GPU is enabled.")

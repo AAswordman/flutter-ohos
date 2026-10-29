@@ -135,7 +135,8 @@ SurfaceFrame::FramebufferInfo AndroidSurfaceGLSkia::GLContextFramebufferInfo()
   FML_DCHECK(IsValid());
   SurfaceFrame::FramebufferInfo res;
   res.supports_readback = true;
-  res.supports_partial_repaint = onscreen_surface_->SupportsPartialRepaint();
+  res.supports_partial_repaint = android_context_->IsPartialRepaintEnabled() &&
+                                 onscreen_surface_->SupportsPartialRepaint();
   res.existing_damage = onscreen_surface_->InitialDamage();
   // Some devices (Pixel2 XL) needs EGL_KHR_partial_update rect aligned to 4,
   // otherwise there are glitches

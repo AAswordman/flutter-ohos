@@ -48,8 +48,12 @@ std::unique_ptr<Surface> AndroidSurfaceVKImpeller::CreateGPUSurface(
     return nullptr;
   }
 
+  auto& context_vk =
+      impeller::ContextVK::Cast(*surface_context_vk_->GetParent());
   std::unique_ptr<GPUSurfaceVulkanImpeller> gpu_surface =
-      std::make_unique<GPUSurfaceVulkanImpeller>(nullptr, surface_context_vk_);
+      std::make_unique<GPUSurfaceVulkanImpeller>(
+          nullptr, surface_context_vk_,
+          context_vk.GetShouldEnablePartialRepaint());
 
   if (!gpu_surface->IsValid()) {
     return nullptr;

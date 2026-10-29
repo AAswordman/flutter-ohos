@@ -5,6 +5,7 @@
 #include "flutter/flow/compositor_context.h"
 
 #include <optional>
+#include <string>
 #include <utility>
 #include "flutter/flow/layers/layer_tree.h"
 
@@ -127,6 +128,18 @@ RasterStatus CompositorContext::ScopedFrame::Raster(
       clip_rect = std::nullopt;
       frame_damage->Reset();
     }
+
+    if (clip_rect.has_value()) {
+      const std::string damage_width =
+          std::to_string(static_cast<int64_t>(clip_rect->GetWidth()));
+      const std::string damage_height =
+          std::to_string(static_cast<int64_t>(clip_rect->GetHeight()));
+      TRACE_EVENT_INSTANT2("flutter", "PartialRepaint",           //
+                           "damage_width", damage_width.c_str(),  //
+                           "damage_height", damage_height.c_str());
+    } else {
+      TRACE_EVENT_INSTANT0("flutter", "PartialRepaintFallback");
+    }
   }
 
   bool root_needs_readback = layer_tree.Preroll(
@@ -146,13 +159,11 @@ RasterStatus CompositorContext::ScopedFrame::Raster(
   }
 
   if (aiks_context_) {
-    if (aiks_context_->IsValid() &&
-        aiks_context_->GetContext()->GetBackendType() ==
-            impeller::Context::BackendType::kVulkan) {
-      PaintLayerTreeImpeller(layer_tree, std::nullopt, ignore_raster_cache);
-    } else {
-      PaintLayerTreeImpeller(layer_tree, clip_rect, ignore_raster_cache);
-    }
+    // The damage rect is applied as a paint clip on all Impeller backends so
+    // that layers outside of it are skipped during paint. On Vulkan, the
+    // surface additionally limits the onscreen render pass to the damage rect
+    // through its render area.
+    PaintLayerTreeImpeller(layer_tree, clip_rect, ignore_raster_cache);
   } else {
     PaintLayerTreeSkia(layer_tree, clip_rect, needs_save_layer,
                        ignore_raster_cache);

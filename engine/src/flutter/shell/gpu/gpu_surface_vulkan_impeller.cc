@@ -5,6 +5,7 @@
 #include "flutter/shell/gpu/gpu_surface_vulkan_impeller.h"
 
 #include <memory>
+#include <string>
 
 #include "flow/surface_frame.h"
 #include "flutter/fml/make_copyable.h"
@@ -52,8 +53,11 @@ class WrappedTextureSourceVK : public impeller::TextureSourceVK {
 
 GPUSurfaceVulkanImpeller::GPUSurfaceVulkanImpeller(
     GPUSurfaceVulkanDelegate* delegate,
-    std::shared_ptr<impeller::Context> context)
-    : delegate_(delegate) {
+    std::shared_ptr<impeller::Context> context,
+    bool enable_partial_repaint)
+    : delegate_(delegate), disable_partial_repaint_(!enable_partial_repaint) {
+  FML_LOG(IMPORTANT) << "GPUSurfaceVulkanImpeller: enable_partial_repaint="
+                     << enable_partial_repaint;
   if (!context || !context->IsValid()) {
     return;
   }
@@ -140,7 +144,7 @@ std::unique_ptr<SurfaceFrame> GPUSurfaceVulkanImpeller::AcquireFrame(
           if (entry.first != image_key) {
             // Accumulate damage for other framebuffers
             if (surface_frame.submit_info().frame_damage) {
-                entry.second =
+              entry.second =
                   entry.second.Union(*surface_frame.submit_info().frame_damage);
             }
           }
@@ -149,13 +153,31 @@ std::unique_ptr<SurfaceFrame> GPUSurfaceVulkanImpeller::AcquireFrame(
         damage_[image_key] = DlIRect();
       }
 
+      if (!disable_partial_repaint_) {
+        if (++frames_since_partial_repaint_log_ >= 120) {
+          frames_since_partial_repaint_log_ = 0;
+          const auto& buffer_damage = surface_frame.submit_info().buffer_damage;
+          const auto& frame_damage = surface_frame.submit_info().frame_damage;
+          auto format_rect = [](const auto& rect) -> std::string {
+            return rect.has_value()
+                       ? std::to_string(rect->GetWidth()) + "x" +
+                             std::to_string(rect->GetHeight())
+                       : std::string("none");
+          };
+          FML_LOG(IMPORTANT) << "PartialRepaint: image=" << image_key
+                             << " buffer=" << format_rect(buffer_damage)
+                             << " frame=" << format_rect(frame_damage)
+                             << " damage_map=" << damage_.size();
+        }
+      }
+
       auto& context_vk = impeller::SurfaceContextVK::Cast(*impeller_context_);
       if (!disable_partial_repaint_ &&
           surface_frame.submit_info().buffer_damage.has_value()) {
         auto buffer_damage = surface_frame.submit_info().buffer_damage;
         if (buffer_damage->GetWidth() == 0 || buffer_damage->GetHeight() == 0) {
           // No damage to render. Skip rendering.
-          FML_LOG(INFO) << "No damage to render, skip rendering.";
+          TRACE_EVENT0("flutter", "SkipFrameNoDamage");
           auto render_rect = impeller::IRect::MakeXYWH(
               buffer_damage->GetX(), buffer_damage->GetY(),
               buffer_damage->GetWidth(), buffer_damage->GetHeight());
@@ -163,6 +185,13 @@ std::unique_ptr<SurfaceFrame> GPUSurfaceVulkanImpeller::AcquireFrame(
           context_vk.SetRenderArea(render_rect);
           return true;
         }
+        const std::string damage_width =
+            std::to_string(buffer_damage->GetWidth());
+        const std::string damage_height =
+            std::to_string(buffer_damage->GetHeight());
+        TRACE_EVENT2("flutter", "PartialRepaintRenderArea",  //
+                     "damage_width", damage_width.c_str(),   //
+                     "damage_height", damage_height.c_str());
         auto render_rect = impeller::IRect::MakeXYWH(
             buffer_damage->GetX(), buffer_damage->GetY(),
             buffer_damage->GetWidth(), buffer_damage->GetHeight());
@@ -183,20 +212,20 @@ std::unique_ptr<SurfaceFrame> GPUSurfaceVulkanImpeller::AcquireFrame(
     };
 
     SurfaceFrame::FramebufferInfo framebuffer_info;
-    if (!disable_partial_repaint_) {
+    if (!disable_partial_repaint_ && image_key != -1) {
       // Provide accumulated damage to rasterizer (area in current framebuffer
       // that lags behind front buffer)
       auto i = damage_.find(image_key);
       if (i != damage_.end()) {
         framebuffer_info.existing_damage = i->second;
       }
-#ifdef __OHOS__
       framebuffer_info.supports_partial_repaint = true;
+#ifdef __OHOS__
       // At this time, the alignment must be aligned with the DMA buffer block
       // size in ohos.
       framebuffer_info.horizontal_clip_alignment = kHorizontalClipAlignment;
       framebuffer_info.vertical_clip_alignment = kVerticalClipAlignment;
-#endif
+#endif  // __OHOS__
     }
     return std::make_unique<SurfaceFrame>(
         nullptr,           // surface
@@ -387,12 +416,20 @@ Surface::SurfaceDamageData GPUSurfaceVulkanImpeller::GetSurfaceDamageData()
   if (!is_valid_ || disable_partial_repaint_) {
     return {};
   }
-#ifdef __OHOS__
-  Surface::SurfaceDamageData surface_damage;
   auto& context_vk = impeller::SurfaceContextVK::Cast(*impeller_context_);
+  if (context_vk.GetImagesCount() <= 0) {
+    // The swapchain (e.g. the AHB swapchain) does not expose per-image state,
+    // so partial repaint is unavailable.
+    return {};
+  }
+  Surface::SurfaceDamageData surface_damage;
   surface_damage.supports_partial_repaint = true;
+#ifdef __OHOS__
+  // At this time, the alignment must be aligned with the DMA buffer block size
+  // in ohos.
   surface_damage.horizontal_clip_alignment = kHorizontalClipAlignment;
   surface_damage.vertical_clip_alignment = kVerticalClipAlignment;
+#endif  // __OHOS__
   if (context_vk.GetImagesCount() != static_cast<int>(damage_.size())) {
     return surface_damage;
   }
@@ -405,9 +442,6 @@ Surface::SurfaceDamageData GPUSurfaceVulkanImpeller::GetSurfaceDamageData()
   }
   surface_damage.all_damage_rects_empty = true;
   return surface_damage;
-#else
-  return {};
-#endif
 }
 
 }  // namespace flutter

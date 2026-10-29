@@ -33,6 +33,7 @@ class AndroidContext {
     bool enable_validation = false;
     bool enable_gpu_tracing = false;
     bool enable_surface_control = false;
+    bool enable_partial_repaint = false;
     bool quiet = false;
     impeller::Flags impeller_flags;
   };

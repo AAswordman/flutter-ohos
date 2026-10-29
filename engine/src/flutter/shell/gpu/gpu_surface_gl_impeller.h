@@ -33,6 +33,8 @@ class GPUSurfaceGLImpeller final : public Surface {
   bool render_to_surface_ = true;
   std::shared_ptr<impeller::AiksContext> aiks_context_;
   bool is_valid_ = false;
+  // Frame counter used to rate-limit partial repaint diagnostics logs.
+  uint32_t frames_since_partial_repaint_log_ = 0;
   fml::TaskRunnerAffineWeakPtrFactory<GPUSurfaceGLImpeller> weak_factory_;
 
   // |Surface|

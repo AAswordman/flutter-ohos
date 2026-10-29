@@ -488,6 +488,7 @@ void ContextVK::Setup(Settings settings) {
   device_name_ = std::string(physical_device_properties.deviceName);
   command_queue_vk_ = std::make_shared<CommandQueueVK>(weak_from_this());
   should_enable_surface_control_ = settings.enable_surface_control;
+  should_enable_partial_repaint_ = settings.enable_partial_repaint;
   should_batch_cmd_buffers_ = !workarounds_.batch_submit_command_buffer_timeout;
   is_valid_ = true;
 
@@ -753,6 +754,10 @@ bool ContextVK::GetShouldEnableSurfaceControlSwapchain() const {
   return should_enable_surface_control_ &&
          CapabilitiesVK::Cast(*device_capabilities_)
              .SupportsExternalSemaphoreExtensions();
+}
+
+bool ContextVK::GetShouldEnablePartialRepaint() const {
+  return should_enable_partial_repaint_;
 }
 
 RuntimeStageBackend ContextVK::GetRuntimeStageBackend() const {

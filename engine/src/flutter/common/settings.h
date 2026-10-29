@@ -242,6 +242,9 @@ struct Settings {
   // Enable android surface control swapchains where supported.
   bool enable_surface_control = false;
 
+  // Enable partial repaint on Impeller Vulkan surfaces when supported.
+  bool enable_partial_repaint = false;
+
   // Whether to lazily initialize impeller PSO state.
   bool impeller_enable_lazy_shader_mode = false;
 

@@ -10,6 +10,29 @@
 
 namespace flutter {
 
+namespace {
+
+std::optional<DlIRect> ToDlRect(const std::optional<impeller::IRect>& rect) {
+  if (!rect.has_value()) {
+    return std::nullopt;
+  }
+  return DlIRect::MakeXYWH(static_cast<int32_t>(rect->GetX()),
+                           static_cast<int32_t>(rect->GetY()),
+                           static_cast<int32_t>(rect->GetWidth()),
+                           static_cast<int32_t>(rect->GetHeight()));
+}
+
+std::optional<impeller::IRect> ToImpellerRect(
+    const std::optional<DlIRect>& rect) {
+  if (!rect.has_value()) {
+    return std::nullopt;
+  }
+  return impeller::IRect::MakeXYWH(rect->GetX(), rect->GetY(), rect->GetWidth(),
+                                   rect->GetHeight());
+}
+
+}  // namespace
+
 AndroidSurfaceGLImpeller::AndroidSurfaceGLImpeller(
     const std::shared_ptr<AndroidContextGLImpeller>& android_context)
     : android_context_(android_context) {
@@ -136,14 +159,25 @@ SurfaceFrame::FramebufferInfo
 AndroidSurfaceGLImpeller::GLContextFramebufferInfo() const {
   auto info = SurfaceFrame::FramebufferInfo{};
   info.supports_readback = true;
-  info.supports_partial_repaint = false;
+  if (android_context_->IsPartialRepaintEnabled() && onscreen_surface_ &&
+      onscreen_surface_->SupportsPartialRepaint()) {
+    info.supports_partial_repaint = true;
+    info.existing_damage = ToDlRect(onscreen_surface_->InitialDamage());
+    // Some devices need the EGL damage rect aligned to avoid visual glitches,
+    // see https://github.com/flutter/flutter/issues/97482.
+    info.horizontal_clip_alignment = 32;
+    info.vertical_clip_alignment = 32;
+  }
   return info;
 }
 
 // |GPUSurfaceGLDelegate|
 void AndroidSurfaceGLImpeller::GLContextSetDamageRegion(
     const std::optional<DlIRect>& region) {
-  // Not supported.
+  if (!onscreen_surface_) {
+    return;
+  }
+  onscreen_surface_->SetDamageRegion(ToImpellerRect(region));
 }
 
 // |GPUSurfaceGLDelegate|
@@ -154,7 +188,7 @@ bool AndroidSurfaceGLImpeller::GLContextPresent(
   if (!onscreen_surface_) {
     return false;
   }
-  return onscreen_surface_->Present();
+  return onscreen_surface_->Present(ToImpellerRect(present_info.frame_damage));
 }
 
 // |GPUSurfaceGLDelegate|

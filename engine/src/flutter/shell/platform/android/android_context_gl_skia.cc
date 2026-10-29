@@ -62,10 +62,12 @@ static bool TeardownContext(EGLDisplay display, EGLContext context) {
 
 AndroidContextGLSkia::AndroidContextGLSkia(
     fml::RefPtr<AndroidEnvironmentGL> environment,
-    const TaskRunners& task_runners)
+    const TaskRunners& task_runners,
+    bool enable_partial_repaint)
     : AndroidContext(AndroidRenderingAPI::kSkiaOpenGLES),
       environment_(std::move(environment)),
-      task_runners_(task_runners) {
+      task_runners_(task_runners),
+      enable_partial_repaint_(enable_partial_repaint) {
   if (!environment_->IsValid()) {
     FML_LOG(ERROR) << "Could not create an Android GL environment.";
     return;

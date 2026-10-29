@@ -59,6 +59,7 @@ AndroidContext::ContextSettings CreateContextSettings(
   settings.enable_gpu_tracing = p_settings.enable_vulkan_gpu_tracing;
   settings.enable_validation = p_settings.enable_vulkan_validation;
   settings.enable_surface_control = p_settings.enable_surface_control;
+  settings.enable_partial_repaint = p_settings.enable_partial_repaint;
   settings.impeller_flags.lazy_shader_mode =
       p_settings.impeller_enable_lazy_shader_mode;
   settings.impeller_flags.antialiased_lines =
@@ -118,15 +119,16 @@ static std::shared_ptr<flutter::AndroidContext> CreateAndroidContext(
     case AndroidRenderingAPI::kSkiaOpenGLES:
       return std::make_unique<AndroidContextGLSkia>(
           fml::MakeRefCounted<AndroidEnvironmentGL>(),  //
-          task_runners                                  //
+          task_runners,                                 //
+          settings.enable_partial_repaint               //
       );
 #endif  // !SLIMPELLER
     case AndroidRenderingAPI::kImpellerVulkan:
       return std::make_unique<AndroidContextVKImpeller>(settings);
     case AndroidRenderingAPI::kImpellerOpenGLES:
       return std::make_unique<AndroidContextGLImpeller>(
-          std::make_unique<impeller::egl::Display>(),
-          enable_opengl_gpu_tracing);
+          std::make_unique<impeller::egl::Display>(), enable_opengl_gpu_tracing,
+          settings.enable_partial_repaint);
     case AndroidRenderingAPI::kImpellerAutoselect:
       // Determine if we're using GL or Vulkan.
       return std::make_unique<AndroidContextDynamicImpeller>(settings);
