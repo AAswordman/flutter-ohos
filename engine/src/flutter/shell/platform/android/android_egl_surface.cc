@@ -159,10 +159,11 @@ class AndroidEGLSurfaceDamage {
   }
 
   bool SupportsPartialRepaint() const {
-    // EGL_EXT_buffer_age is absent on some drivers (e.g. Adreno 6xx on MIUI).
-    // Without it we assume the worst-case buffer age (see InitialDamage),
-    // which over-repaints slightly but stays correct.
-    return swap_buffers_with_damage_ != nullptr;
+    // EGL_EXT_buffer_age is required. Without it the stale region of a back
+    // buffer cannot be known reliably: the age is unbounded when frames are
+    // intermittent (e.g. after idle), assuming a worst case under-repaints,
+    // and some drivers additionally mishandle the swap-with-damage hint.
+    return has_buffer_age_ && swap_buffers_with_damage_ != nullptr;
   }
 
   std::optional<DlIRect> InitialDamage(EGLDisplay display, EGLSurface surface) {
