@@ -34,6 +34,10 @@ class AndroidContext {
     bool enable_gpu_tracing = false;
     bool enable_surface_control = false;
     bool enable_partial_repaint = false;
+    // Skip Impeller's known-bad Vulkan driver blacklist. Only set for an
+    // explicitly selected Vulkan backend; automatic selection keeps the
+    // blacklist.
+    bool allow_bad_vulkan_driver = false;
     bool quiet = false;
     impeller::Flags impeller_flags;
   };

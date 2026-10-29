@@ -112,6 +112,12 @@ static std::shared_ptr<flutter::AndroidContext> CreateAndroidContext(
     AndroidRenderingAPI android_rendering_api,
     bool enable_opengl_gpu_tracing,
     const AndroidContext::ContextSettings& settings) {
+  AndroidContext::ContextSettings vk_settings = settings;
+  // An explicitly selected Vulkan backend implies the embedder accepts the
+  // risks of a driver on Impeller's known-bad list. Automatic selection keeps
+  // the blacklist and falls back to OpenGLES.
+  vk_settings.allow_bad_vulkan_driver =
+      android_rendering_api == AndroidRenderingAPI::kImpellerVulkan;
   switch (android_rendering_api) {
 #if !SLIMPELLER
     case AndroidRenderingAPI::kSoftware:
@@ -124,7 +130,7 @@ static std::shared_ptr<flutter::AndroidContext> CreateAndroidContext(
       );
 #endif  // !SLIMPELLER
     case AndroidRenderingAPI::kImpellerVulkan:
-      return std::make_unique<AndroidContextVKImpeller>(settings);
+      return std::make_unique<AndroidContextVKImpeller>(vk_settings);
     case AndroidRenderingAPI::kImpellerOpenGLES:
       return std::make_unique<AndroidContextGLImpeller>(
           std::make_unique<impeller::egl::Display>(), enable_opengl_gpu_tracing,
