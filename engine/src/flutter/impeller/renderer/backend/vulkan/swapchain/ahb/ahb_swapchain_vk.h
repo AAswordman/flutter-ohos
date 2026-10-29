@@ -47,6 +47,15 @@ class AHBSwapchainVK final : public SwapchainVK {
   vk::Format GetSurfaceFormat() const override;
 
   // |SwapchainVK|
+  int GetCurrentImageIndex() override;
+
+  // |SwapchainVK|
+  int GetImagesCount() override;
+
+  // |SwapchainVK|
+  void SetRenderArea(std::optional<IRect> area) override;
+
+  // |SwapchainVK|
   void UpdateSurfaceSize(const ISize& size) override;
 
   // |SwapchainVK|

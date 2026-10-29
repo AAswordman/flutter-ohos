@@ -28,7 +28,8 @@ class AndroidEGLSurface;
 class AndroidContextGLSkia : public AndroidContext {
  public:
   AndroidContextGLSkia(fml::RefPtr<AndroidEnvironmentGL> environment,
-                       const TaskRunners& taskRunners);
+                       const TaskRunners& taskRunners,
+                       bool enable_partial_repaint = false);
 
   ~AndroidContextGLSkia();
 
@@ -100,6 +101,12 @@ class AndroidContextGLSkia : public AndroidContext {
   ///
   EGLConfig Config() const { return config_; }
 
+  //----------------------------------------------------------------------------
+  /// @brief      Whether partial repaint is enabled for surfaces using this
+  ///             context.
+  ///
+  bool IsPartialRepaintEnabled() const { return enable_partial_repaint_; }
+
  private:
   fml::RefPtr<AndroidEnvironmentGL> environment_;
   EGLConfig config_;
@@ -107,6 +114,7 @@ class AndroidContextGLSkia : public AndroidContext {
   EGLContext resource_context_;
   bool valid_ = false;
   TaskRunners task_runners_;
+  bool enable_partial_repaint_ = false;
 
   FML_DISALLOW_COPY_AND_ASSIGN(AndroidContextGLSkia);
 };

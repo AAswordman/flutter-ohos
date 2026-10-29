@@ -97,6 +97,8 @@ bool SurfaceContextVK::SetSwapchain(std::shared_ptr<SwapchainVK> swapchain) {
     VALIDATION_LOG << "Invalid swapchain.";
     return false;
   }
+  FML_LOG(IMPORTANT) << "SurfaceContextVK: swapchain set, images="
+                     << swapchain->GetImagesCount();
   swapchain_changed_ = true;
   swapchain_ = std::move(swapchain);
   return true;

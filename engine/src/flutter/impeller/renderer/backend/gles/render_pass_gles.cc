@@ -125,6 +125,10 @@ void ConfigureStencil(const ProcTableGLES& gl,
 struct RenderPassData {
   Viewport viewport;
 
+  // When set, the initial clear is limited to this region so that the contents
+  // of the surface outside of it are preserved for partial repaint.
+  std::optional<IRect> render_area;
+
   Color clear_color;
   uint32_t clear_stencil = 0u;
   Scalar clear_depth = 1.0;
@@ -297,12 +301,30 @@ void RenderPassGLES::ResetGLState(const ProcTableGLES& gl) {
 
   RenderPassGLES::ResetGLState(gl);
 
-  gl.Clear(clear_bits);
-
   // Both the viewport and scissor are specified in framebuffer coordinates.
   // Impeller's framebuffer coordinate system is top left origin, but OpenGL's
   // is bottom left origin, so we convert the coordinates here.
   ISize target_size = pass_data.color_attachment->GetSize();
+
+  // Limit the clear to the render area (if any) so that the undamaged regions
+  // of the surface are preserved for partial repaint. The scissor test is
+  // disabled again afterwards; individual commands set up their own scissor.
+  if (pass_data.render_area.has_value()) {
+    const auto& render_area = pass_data.render_area.value();
+    gl.Enable(GL_SCISSOR_TEST);
+    gl.Scissor(
+        render_area.GetX(),                                                 // x
+        target_size.height - render_area.GetY() - render_area.GetHeight(),  // y
+        render_area.GetWidth(),  // width
+        render_area.GetHeight()  // height
+    );
+  }
+
+  gl.Clear(clear_bits);
+
+  if (pass_data.render_area.has_value()) {
+    gl.Disable(GL_SCISSOR_TEST);
+  }
 
   //--------------------------------------------------------------------------
   /// Setup the viewport.
@@ -631,6 +653,7 @@ bool RenderPassGLES::OnEncodeCommands(const Context& context) const {
   auto pass_data = std::make_shared<RenderPassData>();
   pass_data->label = label_;
   pass_data->viewport.rect = Rect::MakeSize(GetRenderTargetSize());
+  pass_data->render_area = render_target.GetRenderArea();
 
   //----------------------------------------------------------------------------
   /// Setup color data.

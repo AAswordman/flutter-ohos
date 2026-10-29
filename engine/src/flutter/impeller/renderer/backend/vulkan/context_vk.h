@@ -83,6 +83,7 @@ class ContextVK final : public Context,
     bool enable_validation = false;
     bool enable_gpu_tracing = false;
     bool enable_surface_control = false;
+    bool enable_partial_repaint = false;
     /// If validations are requested but cannot be enabled, log a fatal error.
     bool fatal_missing_validations = false;
     Flags flags;
@@ -237,6 +238,10 @@ class ContextVK final : public Context,
   ///        enabled
   bool GetShouldEnableSurfaceControlSwapchain() const;
 
+  /// @brief Whether partial repaint should be attempted on surfaces backed by
+  ///        this context.
+  bool GetShouldEnablePartialRepaint() const;
+
   // | Context |
   bool EnqueueCommandBuffer(
       std::shared_ptr<CommandBuffer> command_buffer) override;
@@ -300,6 +305,7 @@ class ContextVK final : public Context,
   mutable DescriptorPoolMap IPLR_GUARDED_BY(desc_pool_mutex_)
       cached_descriptor_pool_;
   bool should_enable_surface_control_ = false;
+  bool should_enable_partial_repaint_ = false;
   bool should_batch_cmd_buffers_ = false;
   std::vector<std::shared_ptr<CommandBuffer>> pending_command_buffers_;
   bool is_preload_ = false;

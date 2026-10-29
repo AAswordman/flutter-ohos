@@ -31,6 +31,9 @@ class AndroidImageGenerator : public ImageGenerator {
   unsigned int GetPlayCount() const override;
 
   // |ImageGenerator|
+  uint32_t GetColorSpace(unsigned int frame_index) override;
+
+  // |ImageGenerator|
   const ImageGenerator::FrameInfo GetFrameInfo(
       unsigned int frame_index) override;
 

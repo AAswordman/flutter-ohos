@@ -54,6 +54,8 @@ public class FlutterLoader {
       "io.flutter.embedding.android.DisableMergedPlatformUIThread";
   private static final String ENABLE_SURFACE_CONTROL =
       "io.flutter.embedding.android.EnableSurfaceControl";
+  private static final String ENABLE_PARTIAL_REPAINT =
+      "io.flutter.embedding.android.EnablePartialRepaint";
   private static final String ENABLE_FLUTTER_GPU = "io.flutter.embedding.android.EnableFlutterGPU";
   private static final String IMPELLER_LAZY_SHADER_MODE =
       "io.flutter.embedding.android.ImpellerLazyShaderInitialization";
@@ -438,6 +440,9 @@ public class FlutterLoader {
         }
         if (metaData.getBoolean(ENABLE_SURFACE_CONTROL, false)) {
           shellArgs.add("--enable-surface-control");
+        }
+        if (metaData.getBoolean(ENABLE_PARTIAL_REPAINT, false)) {
+          shellArgs.add("--enable-partial-repaint");
         }
 
         String backend = metaData.getString(IMPELLER_BACKEND_META_DATA_KEY);
