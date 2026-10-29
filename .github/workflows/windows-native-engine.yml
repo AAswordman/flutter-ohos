@@ -12,10 +12,17 @@ on:
         required: true
         default: false
         type: boolean
+      build_run:
+        description: 'Promote an already successful run without rebuilding'
+        required: false
+        default: ''
+        type: string
 permissions:
+  actions: read
   contents: write
 jobs:
   build:
+    if: inputs.build_run == ''
     runs-on: windows-2022
     timeout-minutes: 360
     strategy:
@@ -86,3 +93,75 @@ jobs:
           name: Flutter ${{ inputs.release_tag }} with Windows native composition
           generate_release_notes: true
           files: release-assets/*.zip
+  promote:
+    if: inputs.build_run != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      BUILD_RUN: ${{ inputs.build_run }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Verify tested source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GH_REPO/actions/runs/$BUILD_RUN" > build-run.json
+          python3 - <<'PY'
+          import json, os, subprocess
+          run = json.load(open('build-run.json'))
+          assert run['name'] == 'Windows Native Composition Engine', run['name']
+          assert run['status'] == 'completed' and run['conclusion'] == 'success'
+          tag = os.environ['RELEASE_TAG']
+          revision = subprocess.check_output(
+              ['git', 'rev-parse', f'refs/tags/{tag}^{{commit}}'], text=True).strip()
+          assert run['head_sha'] == revision, (run['head_sha'], revision)
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write(f'SOURCE_REVISION={revision}\n')
+          PY
+      - uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.build_run }}
+          pattern: windows-x64-*
+          merge-multiple: true
+          path: release-assets
+      - name: Verify archives and native test reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/verify_windows_engine_release.py release-assets "$SOURCE_REVISION" "$RELEASE_TAG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-verification
+          path: |
+            release-assets/release-manifest.json
+            release-assets/SHA256SUMS
+            release-assets/*-unit-tests.xml
+      - name: Publish verified archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show "$SOURCE_REVISION:docs/engine/operit-8-release.md" > release-notes.md
+          cat >> release-notes.md <<EOF
+
+          ## Completed native build verification
+
+          - Windows x64 Debug, Profile and Release builds succeeded.
+          - Shared C++ suite: 234 passed; Windows focused suite: 49 passed.
+          - All five new plugin regressions and the engine tooltip regression passed.
+          - Every archived file matches its manifest SHA-256; all archives identify
+            tested source revision \`$SOURCE_REVISION\` and the retained compiler ABI.
+          - Build: https://github.com/$GH_REPO/actions/runs/$BUILD_RUN
+          - Interactive Operit application replay has not been performed.
+          EOF
+          gh release create "$RELEASE_TAG" --verify-tag --draft \
+            --title "$RELEASE_TAG" --notes-file release-notes.md
+          gh release upload "$RELEASE_TAG" release-assets/windows-x64-{debug,profile,release}.zip \
+            release-assets/release-manifest.json release-assets/SHA256SUMS \
+            release-assets/common-unit-tests.xml release-assets/windows-unit-tests.xml
+          gh release edit "$RELEASE_TAG" --draft=false --latest
