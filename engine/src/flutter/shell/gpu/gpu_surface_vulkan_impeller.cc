@@ -225,6 +225,13 @@ std::unique_ptr<SurfaceFrame> GPUSurfaceVulkanImpeller::AcquireFrame(
       // size in ohos.
       framebuffer_info.horizontal_clip_alignment = kHorizontalClipAlignment;
       framebuffer_info.vertical_clip_alignment = kVerticalClipAlignment;
+#else
+      // Snap the damage rect to a 32px grid (aligning rounds the rect
+      // outward) so that anti-aliased and filtered edges just outside of the
+      // computed damage are repainted too. Matches the Skia GLES surface on
+      // Android, see https://github.com/flutter/flutter/issues/97482.
+      framebuffer_info.horizontal_clip_alignment = 32;
+      framebuffer_info.vertical_clip_alignment = 32;
 #endif  // __OHOS__
     }
     return std::make_unique<SurfaceFrame>(
@@ -429,6 +436,10 @@ Surface::SurfaceDamageData GPUSurfaceVulkanImpeller::GetSurfaceDamageData()
   // in ohos.
   surface_damage.horizontal_clip_alignment = kHorizontalClipAlignment;
   surface_damage.vertical_clip_alignment = kVerticalClipAlignment;
+#else
+  // 32px grid, matching the framebuffer info above.
+  surface_damage.horizontal_clip_alignment = 32;
+  surface_damage.vertical_clip_alignment = 32;
 #endif  // __OHOS__
   if (context_vk.GetImagesCount() != static_cast<int>(damage_.size())) {
     return surface_damage;
