@@ -22,6 +22,8 @@ static constexpr char kDataKey[] = "data";
 static constexpr char kMessageKey[] = "message";
 static constexpr char kViewIdKey[] = "viewId";
 static constexpr char kAnnounceValue[] = "announce";
+static constexpr char kTapValue[] = "tap";
+static constexpr char kTooltipValue[] = "tooltip";
 
 // Handles messages like:
 // {"type": "announce", "data": {"message": "Hello"}}
@@ -49,6 +51,11 @@ void HandleMessage(AccessibilityPlugin* plugin, const EncodableValue& message) {
   }
   if (!data) {
     FML_LOG(ERROR) << "Accessibility message 'data' property must be a map.";
+    return;
+  }
+
+  if (*type == kTapValue || *type == kTooltipValue) {
+    // These framework events have no Windows-specific handling.
     return;
   }
 
