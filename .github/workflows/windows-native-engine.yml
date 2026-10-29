@@ -3,10 +3,15 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Verified release tag to build and publish'
+        description: 'Release version for the engine archives'
         required: true
         type: string
-        default: '3.41.10-ohos-0.0.2-beta.operit.3'
+        default: '3.41.10-ohos-0.0.2-beta.operit.8'
+      publish:
+        description: 'Publish artifacts from a matching release tag'
+        required: true
+        default: false
+        type: boolean
 permissions:
   contents: write
 jobs:
@@ -21,7 +26,16 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: flutter
-          ref: ${{ inputs.release_tag }}
+          ref: ${{ github.sha }}
+      - name: Check release source identity
+        if: inputs.publish
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if ('${{ github.ref }}' -ne "refs/tags/$env:RELEASE_TAG") {
+            throw 'Publishing requires dispatching from the matching release tag.'
+          }
       - name: Install depot tools
         shell: pwsh
         run: |
@@ -49,7 +63,14 @@ jobs:
           name: windows-x64-${{ matrix.mode }}
           path: flutter/engine/src/out/host_${{ matrix.mode }}/windows-x64-${{ matrix.mode }}.zip
           if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always() && matrix.mode == 'debug'
+        with:
+          name: windows-x64-test-results
+          path: flutter/engine/src/out/host_debug/*-unit-tests.xml
+          if-no-files-found: ignore
   publish:
+    if: inputs.publish
     needs: build
     runs-on: ubuntu-latest
     steps:

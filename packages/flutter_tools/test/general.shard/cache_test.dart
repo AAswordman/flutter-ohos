@@ -753,13 +753,13 @@ void main() {
       downloads.add(uri.toString());
     };
 
-    expect(artifacts.version, '3.41.10-ohos-0.0.2-beta.operit.3');
+    expect(artifacts.version, '3.41.10-ohos-0.0.2-beta.operit.8');
     await artifacts.updateInner(updater, fileSystem, FakeOperatingSystemUtils());
 
     expect(downloads, <String>[
-      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.3/windows-x64-debug.zip',
-      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.3/windows-x64-profile.zip',
-      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.3/windows-x64-release.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.8/windows-x64-debug.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.8/windows-x64-profile.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.8/windows-x64-release.zip',
     ]);
   });
 

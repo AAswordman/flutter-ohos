@@ -1,6 +1,6 @@
 param(
   [ValidateSet('debug','profile','release')][string]$Mode = 'debug',
-  [string]$Version = '3.41.10-ohos-0.0.2-beta.operit.3',
+  [string]$Version = '3.41.10-ohos-0.0.2-beta.operit.8',
   [string]$Python = 'python',
   [int]$Jobs = 8,
   [switch]$RunTests,
@@ -20,7 +20,8 @@ if (!$Ninja) {
 $env:WINDOWSSDKDIR = (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots').KitsRoot10
 Push-Location $root
 try {
-  & $Python engine/src/flutter/tools/gn --runtime-mode $Mode --no-goma
+  $engineAbi = (Get-Content bin/internal/engine.version -Raw).Trim()
+  & $Python engine/src/flutter/tools/gn --runtime-mode $Mode --no-goma --gn-args "engine_version=`"$engineAbi`""
   if ($LASTEXITCODE) { throw 'Engine GN generation failed.' }
   $out = Join-Path $root "engine/src/out/host_$Mode"
   $targets = @('flutter/shell/platform/windows:windows', 'gen_snapshot')
@@ -28,9 +29,9 @@ try {
   & $Ninja -C $out -j $Jobs @targets
   if ($LASTEXITCODE) { throw 'Engine build failed.' }
   if ($RunTests) {
-    & "$out/common_cpp_unittests.exe"
+    & "$out/common_cpp_unittests.exe" "--gtest_output=xml:$out/common-unit-tests.xml"
     if ($LASTEXITCODE) { throw 'Common engine tests failed.' }
-    & "$out/flutter_windows_unittests.exe" '--gtest_filter=AccessibilityBridgeWindows.*:AccessibilityPluginTest.*:NativeCompositionTest.*:PlatformViewPluginTest.*:FlutterWindowsEngineTest.RegisterPlatformViewBeforeRun:CompositorOpenGLTest.*'
+    & "$out/flutter_windows_unittests.exe" '--gtest_filter=AccessibilityBridgeWindows.*:AccessibilityPluginTest.*:NativeCompositionTest.*:PlatformViewPluginTest.*:FlutterWindowsEngineTest.RegisterPlatformViewBeforeRun:FlutterWindowsEngineTest.AccessibilityTooltip:CompositorOpenGLTest.*' "--gtest_output=xml:$out/windows-unit-tests.xml"
     if ($LASTEXITCODE) { throw 'Windows engine tests failed.' }
   }
   $stage = Join-Path $out "native-artifact/windows-x64-$Mode-$Version-$([guid]::NewGuid().ToString('N'))"
