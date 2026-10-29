@@ -107,10 +107,12 @@ static std::shared_ptr<impeller::Context> CreateImpellerContext(
 
 AndroidContextGLImpeller::AndroidContextGLImpeller(
     std::unique_ptr<impeller::egl::Display> display,
-    bool enable_gpu_tracing)
+    bool enable_gpu_tracing,
+    bool enable_partial_repaint)
     : AndroidContext(AndroidRenderingAPI::kImpellerOpenGLES),
       reactor_worker_(std::shared_ptr<ReactorWorker>(new ReactorWorker())),
-      display_(std::move(display)) {
+      display_(std::move(display)),
+      enable_partial_repaint_(enable_partial_repaint) {
   if (!display_ || !display_->IsValid()) {
     FML_LOG(ERROR) << "Could not create context with invalid EGL display.";
     return;
@@ -265,6 +267,10 @@ AndroidContextGLImpeller::CreateOnscreenSurface(EGLNativeWindowType window) {
 
 AndroidRenderingAPI AndroidContextGLImpeller::RenderingApi() const {
   return AndroidRenderingAPI::kImpellerOpenGLES;
+}
+
+bool AndroidContextGLImpeller::IsPartialRepaintEnabled() const {
+  return enable_partial_repaint_;
 }
 
 }  // namespace flutter

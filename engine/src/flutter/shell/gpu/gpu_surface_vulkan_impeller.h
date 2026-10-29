@@ -18,8 +18,20 @@ namespace flutter {
 
 class GPUSurfaceVulkanImpeller final : public Surface {
  public:
-  explicit GPUSurfaceVulkanImpeller(GPUSurfaceVulkanDelegate* delegate,
-                                    std::shared_ptr<impeller::Context> context);
+  /// @brief Whether partial repaint is enabled unless the embedder says
+  ///        otherwise. It is on by default on OHOS where it has been validated
+  ///        and opt-in elsewhere (e.g. via the --enable-partial-repaint
+  ///        switch).
+#ifdef __OHOS__
+  static constexpr bool kDefaultEnablePartialRepaint = true;
+#else
+  static constexpr bool kDefaultEnablePartialRepaint = false;
+#endif
+
+  explicit GPUSurfaceVulkanImpeller(
+      GPUSurfaceVulkanDelegate* delegate,
+      std::shared_ptr<impeller::Context> context,
+      bool enable_partial_repaint = kDefaultEnablePartialRepaint);
 
   // |Surface|
   ~GPUSurfaceVulkanImpeller() override;
@@ -33,19 +45,21 @@ class GPUSurfaceVulkanImpeller final : public Surface {
 
  private:
   GPUSurfaceVulkanDelegate* delegate_;
-  GPUSurfaceVulkanDelegate* ohos_delegate_;
+  // Only assigned on OHOS; on other platforms it must stay null or the
+  // submit callback calls SetPresentInfo through uninitialized memory.
+  GPUSurfaceVulkanDelegate* ohos_delegate_ = nullptr;
   std::shared_ptr<impeller::Context> impeller_context_;
   std::shared_ptr<impeller::AiksContext> aiks_context_;
   std::shared_ptr<impeller::SwapchainTransientsVK> transients_;
   bool is_valid_ = false;
 
-#ifdef __OHOS__
-  bool disable_partial_repaint_ = false;
-#else
-  bool disable_partial_repaint_ = true;
-#endif
-  // Accumulated damage for each framebuffer; Key is address of underlying
-  // MTLTexture for each drawable
+  bool disable_partial_repaint_ = !kDefaultEnablePartialRepaint;
+
+  // Frame counter used to rate-limit partial repaint diagnostics logs.
+  uint32_t frames_since_partial_repaint_log_ = 0;
+
+  // Accumulated damage for each framebuffer; Key is the swapchain image index
+  // for each drawable.
   std::map<int, DlIRect> damage_;
 
   // |Surface|

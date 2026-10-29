@@ -55,6 +55,24 @@ vk::Format AHBSwapchainVK::GetSurfaceFormat() const {
 }
 
 // |SwapchainVK|
+int AHBSwapchainVK::GetCurrentImageIndex() {
+  // AHB swapchains present through SurfaceControl transactions and do not
+  // expose stable per-buffer identities. The unknown index disables the
+  // partial repaint machinery for this swapchain.
+  return -1;
+}
+
+// |SwapchainVK|
+int AHBSwapchainVK::GetImagesCount() {
+  return 0;
+}
+
+// |SwapchainVK|
+void AHBSwapchainVK::SetRenderArea(std::optional<IRect> area) {
+  // Damage regions are not forwarded to the SurfaceControl transaction yet.
+}
+
+// |SwapchainVK|
 void AHBSwapchainVK::AddFinalCommandBuffer(
     std::shared_ptr<CommandBuffer> cmd_buffer) const {
   return impl_->AddFinalCommandBuffer(cmd_buffer);

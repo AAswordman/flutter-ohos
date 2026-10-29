@@ -14,7 +14,8 @@ namespace flutter {
 class AndroidContextGLImpeller : public AndroidContext {
  public:
   AndroidContextGLImpeller(std::unique_ptr<impeller::egl::Display> display,
-                           bool enable_gpu_tracing);
+                           bool enable_gpu_tracing,
+                           bool enable_partial_repaint = false);
 
   ~AndroidContextGLImpeller();
 
@@ -23,6 +24,10 @@ class AndroidContextGLImpeller : public AndroidContext {
 
   // |AndroidContext|
   AndroidRenderingAPI RenderingApi() const override;
+
+  /// @brief Whether partial repaint is enabled for surfaces using this
+  ///        context.
+  bool IsPartialRepaintEnabled() const;
 
   bool ResourceContextMakeCurrent(impeller::egl::Surface* offscreen_surface);
   bool ResourceContextClearCurrent();
@@ -42,6 +47,7 @@ class AndroidContextGLImpeller : public AndroidContext {
   std::unique_ptr<impeller::egl::Context> onscreen_context_;
   std::unique_ptr<impeller::egl::Context> offscreen_context_;
   bool is_valid_ = false;
+  bool enable_partial_repaint_ = false;
 
   FML_DISALLOW_COPY_AND_ASSIGN(AndroidContextGLImpeller);
 };

@@ -517,6 +517,11 @@ Settings SettingsFromCommandLine(const fml::CommandLine& command_line,
   settings.enable_surface_control = command_line.HasOption(
       FlagForSwitch(Switch::EnableAndroidSurfaceControl));
 
+  settings.enable_partial_repaint =
+      command_line.HasOption(FlagForSwitch(Switch::EnablePartialRepaint));
+  FML_LOG(IMPORTANT) << "Switch parsed: enable-partial-repaint="
+                     << settings.enable_partial_repaint;
+
   constexpr std::string_view kMergedThreadEnabled = "enabled";
   constexpr std::string_view kMergedThreadDisabled = "disabled";
   constexpr std::string_view kMergedThreadMergeAfterLaunch = "mergeAfterLaunch";

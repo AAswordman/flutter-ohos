@@ -280,7 +280,9 @@ AndroidRenderingAPI FlutterMain::SelectedRenderingAPI(
 
   // Debug/Profile only functionality for testing a specific
   // backend configuration.
-#ifndef FLUTTER_RELEASE
+  // Not gated on FLUTTER_RELEASE in this fork: the backend override is needed
+  // in release builds too (e.g. to force OpenGLES on Waydroid where the
+  // lavapipe Vulkan swapchain does not present a first frame).
   if (settings.requested_rendering_backend == "opengles" &&
       settings.enable_impeller) {
     return AndroidRenderingAPI::kImpellerOpenGLES;
@@ -289,7 +291,6 @@ AndroidRenderingAPI FlutterMain::SelectedRenderingAPI(
       settings.enable_impeller) {
     return AndroidRenderingAPI::kImpellerVulkan;
   }
-#endif
 
   if (settings.enable_impeller &&
       api_level >= kMinimumAndroidApiLevelForImpeller && !IsVivante()) {
