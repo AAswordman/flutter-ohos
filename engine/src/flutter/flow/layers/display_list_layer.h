@@ -17,7 +17,12 @@ namespace flutter {
 
 class DisplayListLayer : public Layer {
  public:
-  static constexpr size_t kMaxBytesToCompare = 10000;
+  // Display lists larger than this are treated as changed without a deep
+  // comparison, so their entire region is repainted. The default of 10 KB is
+  // small enough that e.g. a conversation list repaints wholesale on every
+  // frame in which it is re-recorded; raise it so partial repaint can prove
+  // unchanged content is unchanged.
+  static constexpr size_t kMaxBytesToCompare = 262144;
 
   DisplayListLayer(const DlPoint& offset,
                    sk_sp<DisplayList> display_list,
