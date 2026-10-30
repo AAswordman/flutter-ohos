@@ -264,13 +264,13 @@ void DiffContext::Statistics::LogStatistics() {
                     same_instance_pictures_,
                     "DifferentInstanceButEqualPictures",
                     different_instance_but_equal_pictures_);
-#endif  // !FLUTTER_RELEASE
   FML_LOG(IMPORTANT) << "DiffStats: new=" << new_pictures_
                      << " too_complex=" << pictures_too_complex_to_compare_
                      << " deep=" << deep_compare_pictures_
                      << " same_instance=" << same_instance_pictures_
                      << " diff_but_equal=" << different_instance_but_equal_pictures_
                      << " total=" << (new_pictures_ + pictures_too_complex_to_compare_ + deep_compare_pictures_ + same_instance_pictures_ + different_instance_but_equal_pictures_);
+#endif  // !FLUTTER_RELEASE
 }
 
 }  // namespace flutter

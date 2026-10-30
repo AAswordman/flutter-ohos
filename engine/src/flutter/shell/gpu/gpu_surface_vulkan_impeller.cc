@@ -153,6 +153,7 @@ std::unique_ptr<SurfaceFrame> GPUSurfaceVulkanImpeller::AcquireFrame(
         damage_[image_key] = DlIRect();
       }
 
+#if !FLUTTER_RELEASE
       if (!disable_partial_repaint_) {
         if (++frames_since_partial_repaint_log_ >= 120) {
           frames_since_partial_repaint_log_ = 0;
@@ -172,6 +173,7 @@ std::unique_ptr<SurfaceFrame> GPUSurfaceVulkanImpeller::AcquireFrame(
                              << " damage_map=" << damage_.size();
         }
       }
+#endif  // !FLUTTER_RELEASE
 
       auto& context_vk = impeller::SurfaceContextVK::Cast(*impeller_context_);
       if (!disable_partial_repaint_ &&
