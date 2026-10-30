@@ -39,11 +39,13 @@ std::optional<DlRect> FrameDamage::ComputeClipRect(
     damage_ =
         context.ComputeDamage(additional_damage_, horizontal_clip_alignment_,
                               vertical_clip_alignment_);
+#if !FLUTTER_RELEASE
     static int diff_stats_frames = 0;
     if (++diff_stats_frames >= 120) {
       diff_stats_frames = 0;
       context.statistics().LogStatistics();
     }
+#endif  // !FLUTTER_RELEASE
     return DlRect::Make(damage_->buffer_damage);
   }
   return std::nullopt;
