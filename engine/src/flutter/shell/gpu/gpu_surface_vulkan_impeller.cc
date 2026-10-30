@@ -160,7 +160,9 @@ std::unique_ptr<SurfaceFrame> GPUSurfaceVulkanImpeller::AcquireFrame(
           const auto& frame_damage = surface_frame.submit_info().frame_damage;
           auto format_rect = [](const auto& rect) -> std::string {
             return rect.has_value()
-                       ? std::to_string(rect->GetWidth()) + "x" +
+                       ? "@" + std::to_string(rect->GetX()) + "," +
+                             std::to_string(rect->GetY()) + " " +
+                             std::to_string(rect->GetWidth()) + "x" +
                              std::to_string(rect->GetHeight())
                        : std::string("none");
           };
