@@ -30,7 +30,7 @@ jobs:
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: flutter
           fetch-depth: 0
@@ -64,14 +64,14 @@ jobs:
         env:
           VERSION: ${{ inputs.release_tag || '3.41.10-ohos-0.0.2-beta.operit.4' }}
         run: bash tools/build_linux_native_engine.sh '${{ matrix.mode }}' "$VERSION" 4
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.platform.arch }}-${{ matrix.mode }}-engine
           path: |
             flutter/engine/src/out/host_${{ matrix.mode }}/linux-*.zip
             flutter/engine/src/out/host_${{ matrix.mode }}/linux-*.zip.sha256
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: matrix.mode == 'debug' && always()
         with:
           name: linux-${{ matrix.platform.arch }}-scene-results
@@ -86,13 +86,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: linux-*-engine
           path: release-assets
           merge-multiple: true
       - name: Publish verified Linux engines
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.release_tag }}
           name: Flutter ${{ inputs.release_tag }} with Linux native composition
