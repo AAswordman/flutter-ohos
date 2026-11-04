@@ -626,6 +626,7 @@ class Overlay extends StatefulWidget {
 class OverlayState extends State<Overlay> with TickerProviderStateMixin {
   final List<OverlayEntry> _entries = <OverlayEntry>[];
 
+  /// Whether [entry] is currently inserted in this overlay.
   bool containsEntry(OverlayEntry entry) => _entries.contains(entry);
 
   @protected
