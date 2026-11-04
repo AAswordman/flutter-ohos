@@ -683,6 +683,80 @@ void main() {
     expect(isHit, true);
   });
 
+  testWidgets('overlay child is not hit tested before its layout surrogate is laid out', (
+    WidgetTester tester,
+  ) async {
+    final portalController = OverlayPortalController(debugLabel: 'portalController');
+    final controller = ScrollController(initialScrollOffset: 10);
+    addTearDown(controller.dispose);
+    late final OverlayEntry overlayEntry;
+    addTearDown(
+      () => overlayEntry
+        ..remove()
+        ..dispose(),
+    );
+    var isHit = false;
+
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Overlay(
+          initialEntries: <OverlayEntry>[
+            overlayEntry = OverlayEntry(
+              builder: (BuildContext context) {
+                return ListView(
+                  controller: controller,
+                  cacheExtent: 0,
+                  addAutomaticKeepAlives: false,
+                  addRepaintBoundaries: false,
+                  addSemanticIndexes: false,
+                  children: <Widget>[
+                    const SizedBox(height: 600),
+                    KeepAlive(
+                      keepAlive: true,
+                      child: OverlayPortal(
+                        controller: portalController,
+                        overlayChildBuilder: (BuildContext context) {
+                          return Positioned(
+                            left: 0.0,
+                            top: 0.0,
+                            width: 1.0,
+                            height: 1.0,
+                            child: GestureDetector(
+                              onTap: () {
+                                isHit = true;
+                              },
+                            ),
+                          );
+                        },
+                        child: const SizedBox(height: 10),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+
+    // The OverlayPortal is kept alive out of view, so its layout surrogate is
+    // no longer laid out, and an overlay child shown now is not laid out either.
+    controller.jumpTo(0);
+    await tester.pump();
+    portalController.show();
+    await tester.pump();
+
+    await tester.tapAt(const Offset(0.5, 0.5));
+    expect(isHit, false);
+
+    controller.jumpTo(10);
+    await tester.pump();
+    await tester.tapAt(const Offset(0.5, 0.5));
+    expect(isHit, true);
+  });
+
   testWidgets('works in a LayoutBuilder', (WidgetTester tester) async {
     late final OverlayEntry overlayEntry;
     addTearDown(
@@ -3019,6 +3093,79 @@ void main() {
             ..paragraph(),
         ),
       );
+    });
+
+    testWidgets('overlay child joins the semantics tree once its layout surrogate is laid out', (
+      WidgetTester tester,
+    ) async {
+      final semantics = SemanticsTester(tester);
+      final portalController = OverlayPortalController(debugLabel: 'portalController');
+
+      final controller = ScrollController(initialScrollOffset: 10);
+      addTearDown(controller.dispose);
+
+      late final OverlayEntry entry;
+      addTearDown(() {
+        entry.remove();
+        entry.dispose();
+      });
+
+      final Widget widget = Directionality(
+        textDirection: TextDirection.ltr,
+        child: Overlay(
+          initialEntries: <OverlayEntry>[
+            entry = OverlayEntry(
+              builder: (BuildContext context) {
+                return DefaultTextStyle(
+                  style: const TextStyle(fontSize: 10),
+                  child: ListView(
+                    controller: controller,
+                    cacheExtent: 0,
+                    addAutomaticKeepAlives: false,
+                    addRepaintBoundaries: false,
+                    addSemanticIndexes: false,
+                    children: <Widget>[
+                      SizedBox(height: TestSemantics.fullScreen.height),
+                      KeepAlive(
+                        keepAlive: true,
+                        child: Semantics(
+                          container: true,
+                          explicitChildNodes: true,
+                          child: OverlayPortal(
+                            controller: portalController,
+                            overlayChildBuilder: (BuildContext context) {
+                              return const Positioned(left: 0, top: 0, child: Text('B'));
+                            },
+                            child: const Text('A'),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+      );
+      await tester.pumpWidget(widget);
+      expect(semantics.nodesWith(label: 'A'), isNotEmpty);
+
+      // The OverlayPortal is kept alive out of view, so its layout surrogate is
+      // no longer laid out, and an overlay child shown now is not laid out either.
+      controller.jumpTo(0);
+      await tester.pump();
+      expect(semantics.nodesWith(label: 'A'), isEmpty);
+
+      portalController.show();
+      await tester.pump();
+      expect(semantics.nodesWith(label: 'B'), isEmpty);
+
+      controller.jumpTo(10);
+      await tester.pump();
+      expect(semantics.nodesWith(label: 'A'), isNotEmpty);
+      expect(semantics.nodesWith(label: 'B'), isNotEmpty);
+      semantics.dispose();
     });
   });
 
