@@ -626,6 +626,7 @@ class Overlay extends StatefulWidget {
 class OverlayState extends State<Overlay> with TickerProviderStateMixin {
   final List<OverlayEntry> _entries = <OverlayEntry>[];
 
+  /// Whether [entry] is currently inserted in this overlay.
   bool containsEntry(OverlayEntry entry) => _entries.contains(entry);
 
   @protected
@@ -1033,6 +1034,17 @@ mixin _RenderTheaterMixin on RenderBox {
   Iterable<RenderBox> _childrenInPaintOrder();
   Iterable<RenderBox> _childrenInHitTestOrder();
 
+  // Whether `child` takes part in baselines, hit testing and semantics.
+  //
+  // An overlay child is laid out after its layout surrogate, by the surrogate.
+  // When an ancestor skips laying out the surrogate (for example, the
+  // OverlayPortal is in a kept-alive sliver child that is out of view), an
+  // overlay child added in the meantime is not laid out either. Painting skips
+  // it because it still needs layout, so it is left out here as well until the
+  // surrogate lays it out.
+  static bool _isLaidOut(RenderBox child) =>
+      child is! _RenderDeferredLayoutBox || !child.needsLayout;
+
   @override
   void setupParentData(RenderBox child) {
     if (child.parentData is! StackParentData) {
@@ -1044,7 +1056,7 @@ mixin _RenderTheaterMixin on RenderBox {
   double? computeDistanceToActualBaseline(TextBaseline baseline) {
     assert(!debugNeedsLayout);
     BaselineOffset baselineOffset = BaselineOffset.noBaseline;
-    for (final RenderBox child in _childrenInPaintOrder()) {
+    for (final RenderBox child in _childrenInPaintOrder().where(_isLaidOut)) {
       assert(!child.debugNeedsLayout);
       final childParentData = child.parentData! as StackParentData;
       baselineOffset = baselineOffset.minOf(
@@ -1097,7 +1109,7 @@ mixin _RenderTheaterMixin on RenderBox {
 
   @override
   bool hitTestChildren(BoxHitTestResult result, {required Offset position}) {
-    final Iterator<RenderBox> iterator = _childrenInHitTestOrder().iterator;
+    final Iterator<RenderBox> iterator = _childrenInHitTestOrder().where(_isLaidOut).iterator;
     var isHit = false;
     while (!isHit && iterator.moveNext()) {
       final RenderBox child = iterator.current;
@@ -1346,7 +1358,7 @@ class _RenderTheater extends RenderBox
     final Alignment alignment = theater._resolvedAlignment;
 
     BaselineOffset baselineOffset = BaselineOffset.noBaseline;
-    for (final RenderBox child in _childrenInPaintOrder()) {
+    for (final RenderBox child in _childrenInPaintOrder().where(_RenderTheaterMixin._isLaidOut)) {
       baselineOffset = baselineOffset.minOf(
         BaselineOffset(
           _RenderTheaterMixin.baselineForChild(
@@ -1503,7 +1515,11 @@ class _RenderTheater extends RenderBox
       visitor(child);
       final childParentData = child.parentData! as _TheaterParentData;
 
-      childParentData.visitOverlayPortalChildrenOnOverlayEntry(visitor);
+      childParentData.visitOverlayPortalChildrenOnOverlayEntry((RenderObject overlayChild) {
+        if (_RenderTheaterMixin._isLaidOut(overlayChild as RenderBox)) {
+          visitor(overlayChild);
+        }
+      });
       child = childParentData.nextSibling;
     }
   }
