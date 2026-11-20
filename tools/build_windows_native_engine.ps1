@@ -30,7 +30,7 @@ try {
   if ($RunTests) {
     & "$out/common_cpp_unittests.exe"
     if ($LASTEXITCODE) { throw 'Common engine tests failed.' }
-    & "$out/flutter_windows_unittests.exe" '--gtest_filter=AccessibilityBridgeWindows.*:AccessibilityPluginTest.*:NativeCompositionTest.*:PlatformViewPluginTest.*:FlutterWindowsEngineTest.RegisterPlatformViewBeforeRun:CompositorOpenGLTest.*'
+    & "$out/flutter_windows_unittests.exe" '--gtest_filter=AccessibilityBridgeWindows.*:AccessibilityPluginTest.*:NativeCompositionTest.*:PlatformViewPluginTest.*:FlutterWindowsEngineTest.RegisterPlatformViewBeforeRun:FlutterWindowsViewTest.WindowResizeTests:FlutterWindowsViewTest.WindowResizeRace:SurfaceShapes/EmptyFrameResizeTest.*:CompositorOpenGLTest.*'
     if ($LASTEXITCODE) { throw 'Windows engine tests failed.' }
   }
   $stage = Join-Path $out "native-artifact/windows-x64-$Mode-$Version-$([guid]::NewGuid().ToString('N'))"

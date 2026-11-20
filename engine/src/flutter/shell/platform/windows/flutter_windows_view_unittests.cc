@@ -10,6 +10,7 @@
 #include <oleacc.h>
 
 #include <future>
+#include <utility>
 #include <vector>
 
 #include "flutter/fml/synchronization/waitable_event.h"
@@ -959,8 +960,14 @@ TEST(FlutterWindowsViewTest, WindowResizeTests) {
   frame_thread.join();
 }
 
-// Verify that an empty frame completes a view resize.
-TEST(FlutterWindowsViewTest, TestEmptyFrameResizes) {
+/// Exercises empty-frame resizing across three surface shapes.
+class EmptyFrameResizeTest
+    : public ::testing::TestWithParam<std::pair<size_t, size_t>> {};
+
+// Verify that an empty frame preserves both dimensions and completes a resize.
+TEST_P(EmptyFrameResizeTest, PreservesSurfaceDimensions) {
+  const size_t width = GetParam().first;
+  const size_t height = GetParam().second;
   auto windows_proc_table = std::make_shared<NiceMock<MockWindowsProcTable>>();
   std::unique_ptr<FlutterWindowsEngine> engine =
       GetTestEngine(windows_proc_table);
@@ -981,8 +988,7 @@ TEST(FlutterWindowsViewTest, TestEmptyFrameResizes) {
   EXPECT_CALL(*surface.get(), IsValid).WillRepeatedly(Return(true));
   EXPECT_CALL(*surface.get(), Destroy).WillOnce(Return(true));
 
-  EXPECT_CALL(*egl_manager.get(),
-              CreateWindowSurface(_, /*width=*/500, /*height=*/500))
+  EXPECT_CALL(*egl_manager.get(), CreateWindowSurface(_, width, height))
       .WillOnce(Return(std::move((resized_surface))));
   EXPECT_CALL(*resized_surface_ptr, MakeCurrent).WillOnce(Return(true));
   EXPECT_CALL(*resized_surface_ptr, SetVSyncEnabled).WillOnce(Return(true));
@@ -993,8 +999,10 @@ TEST(FlutterWindowsViewTest, TestEmptyFrameResizes) {
   fml::AutoResetWaitableEvent metrics_sent_latch;
   engine_modifier.embedder_api().SendWindowMetricsEvent = MOCK_ENGINE_PROC(
       SendWindowMetricsEvent,
-      ([&metrics_sent_latch](auto engine,
-                             const FlutterWindowMetricsEvent* event) {
+      ([&metrics_sent_latch, width, height](
+           auto engine, const FlutterWindowMetricsEvent* event) {
+        EXPECT_EQ(event->width, width);
+        EXPECT_EQ(event->height, height);
         metrics_sent_latch.Signal();
         return kSuccess;
       }));
@@ -1017,9 +1025,15 @@ TEST(FlutterWindowsViewTest, TestEmptyFrameResizes) {
 
   // Start the window resize. This sends the new window metrics
   // and then blocks until another thread completes the window resize.
-  EXPECT_TRUE(view->OnWindowSizeChanged(500, 500));
+  EXPECT_TRUE(view->OnWindowSizeChanged(width, height));
   frame_thread.join();
 }
+
+INSTANTIATE_TEST_SUITE_P(SurfaceShapes,
+                         EmptyFrameResizeTest,
+                         ::testing::Values(std::make_pair(500, 500),
+                                           std::make_pair(800, 600),
+                                           std::make_pair(600, 800)));
 
 // A window resize can be interleaved between a frame generation and
 // presentation. This should not crash the app. Regression test for:
