@@ -5,7 +5,9 @@
 #include "flutter/shell/platform/windows/accessibility_plugin.h"
 
 #include <memory>
+#include <variant>
 
+#include "flutter/fml/logging.h"
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/basic_message_channel.h"
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/encodable_value.h"
 #include "flutter/shell/platform/common/client_wrapper/include/flutter/standard_message_codec.h"
@@ -66,24 +68,39 @@ class AccessibilityPluginTest : public WindowsTest {
     AccessibilityPlugin::SetUp(&messenger_, plugin_.get());
   }
 
+  // Sends a message and verifies the channel acknowledges it with a null reply.
+  void SendAccessibilityMessage(const std::string& type,
+                                const EncodableValue& data) {
+    EncodableMap msg;
+    msg[EncodableValue{"type"}] = EncodableValue{type};
+    msg[EncodableValue{"data"}] = data;
+
+    auto encoded =
+        StandardMessageCodec::GetInstance().EncodeMessage(EncodableValue{msg});
+
+    bool replied = false;
+    bool handled = messenger_.SimulateEngineMessage(
+        kAccessibilityChannelName, encoded->data(), encoded->size(),
+        [&replied](const uint8_t* reply, size_t reply_size) {
+          replied = true;
+          auto decoded = StandardMessageCodec::GetInstance().DecodeMessage(
+              reply, reply_size);
+          ASSERT_NE(decoded, nullptr);
+          EXPECT_TRUE(std::holds_alternative<std::monostate>(*decoded));
+        });
+
+    EXPECT_TRUE(handled)
+        << "Message was not handled by the accessibility channel";
+    EXPECT_TRUE(replied);
+  }
+
+  // Sends an announcement with the supplied message and view identifier.
   void SendAnnounceMessage(const std::string& message, EncodableValue view_id) {
     EncodableMap data;
     data[EncodableValue{"message"}] = EncodableValue{message};
     data[EncodableValue{"viewId"}] = view_id;
 
-    EncodableMap msg;
-    msg[EncodableValue{"type"}] = EncodableValue{"announce"};
-    msg[EncodableValue{"data"}] = EncodableValue{data};
-
-    auto encoded =
-        StandardMessageCodec::GetInstance().EncodeMessage(EncodableValue{msg});
-
-    bool handled = messenger_.SimulateEngineMessage(
-        kAccessibilityChannelName, encoded->data(), encoded->size(),
-        [](const uint8_t* reply, size_t reply_size) {});
-
-    EXPECT_TRUE(handled)
-        << "Message was not handled by the accessibility channel";
+    SendAccessibilityMessage("announce", EncodableValue{data});
   }
 
   MockFlutterWindowsView* view() { return view_.get(); }
@@ -129,6 +146,65 @@ TEST_F(AccessibilityPluginTest, AnnounceWithInvalidViewIdType) {
 
   SendAnnounceMessage("Hello", EncodableValue{"invalid"});
 }
+
+// Tap feedback is Android-specific and must not generate Windows warnings.
+TEST_F(AccessibilityPluginTest, TapDoesNotLog) {
+  EXPECT_CALL(*view(), AnnounceAlert(_)).Times(0);
+  fml::testing::LogCapture log_capture;
+
+  SendAccessibilityMessage("tap", EncodableValue{EncodableMap{}});
+
+  EXPECT_TRUE(log_capture.str().empty());
+}
+
+// Tooltip events are accepted without announcing them or logging warnings.
+TEST_F(AccessibilityPluginTest, TooltipDoesNotLog) {
+  EXPECT_CALL(*view(), AnnounceAlert(_)).Times(0);
+  fml::testing::LogCapture log_capture;
+  EncodableMap data;
+  data[EncodableValue{"message"}] = EncodableValue{"Tooltip"};
+
+  SendAccessibilityMessage("tooltip", EncodableValue{data});
+
+  EXPECT_TRUE(log_capture.str().empty());
+}
+
+// Unknown message types must retain their diagnostic warning.
+TEST_F(AccessibilityPluginTest, UnsupportedMessageStillLogs) {
+  EXPECT_CALL(*view(), AnnounceAlert(_)).Times(0);
+  fml::testing::LogCapture log_capture;
+
+  SendAccessibilityMessage("unknown", EncodableValue{EncodableMap{}});
+
+  EXPECT_NE(log_capture.str().find(
+                "Accessibility message type 'unknown' is not supported."),
+            std::string::npos);
+}
+
+// Ignoring tap feedback must not bypass message format validation.
+TEST_F(AccessibilityPluginTest, MalformedTapDataStillLogs) {
+  EXPECT_CALL(*view(), AnnounceAlert(_)).Times(0);
+  fml::testing::LogCapture log_capture;
+
+  SendAccessibilityMessage("tap", EncodableValue{"invalid"});
+
+  EXPECT_NE(log_capture.str().find(
+                "Accessibility message 'data' property must be a map."),
+            std::string::npos);
+}
+
+// Ignoring tooltip feedback must not bypass message format validation.
+TEST_F(AccessibilityPluginTest, MalformedTooltipDataStillLogs) {
+  EXPECT_CALL(*view(), AnnounceAlert(_)).Times(0);
+  fml::testing::LogCapture log_capture;
+
+  SendAccessibilityMessage("tooltip", EncodableValue{"invalid"});
+
+  EXPECT_NE(log_capture.str().find(
+                "Accessibility message 'data' property must be a map."),
+            std::string::npos);
+}
+
 TEST_F(AccessibilityPluginTest, AnnounceWithMissingMessage) {
   // Should not be called when message is missing
   EXPECT_CALL(*view(), AnnounceAlert(_)).Times(0);

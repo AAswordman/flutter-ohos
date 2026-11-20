@@ -2446,6 +2446,16 @@ abstract class MultiSelectableSelectionContainerDelegate extends SelectionContai
         if (!_scheduledSelectableUpdate) {
           return;
         }
+        if (!hasSize) {
+          // An obscured OverlayEntry can build without ever being laid out.
+          // Keep its additions pending until a later frame lays it out,
+          // without requesting a frame or spinning in microtasks while hidden.
+          SchedulerBinding.instance.addPostFrameCallback(
+            runScheduledTask,
+            debugLabel: 'SelectionContainer.waitForLayout',
+          );
+          return;
+        }
         _scheduledSelectableUpdate = false;
         _updateSelectables();
       }
@@ -2461,6 +2471,9 @@ abstract class MultiSelectableSelectionContainerDelegate extends SelectionContai
           runScheduledTask,
           debugLabel: 'SelectionContainer.runScheduledTask',
         );
+        // Additions can propagate from nested containers after the frame's
+        // microtasks. Make sure that their parent gets a frame to process them.
+        SchedulerBinding.instance.ensureVisualUpdate();
       }
     }
   }
@@ -2960,7 +2973,11 @@ abstract class MultiSelectableSelectionContainerDelegate extends SelectionContai
   /// Selects all contents of all [Selectable]s.
   @protected
   SelectionResult handleSelectAll(SelectAllSelectionEvent event) {
-    for (final Selectable selectable in selectables) {
+    // Event dispatch can synchronously unregister this or another child.
+    for (final selectable in List<Selectable>.of(selectables)) {
+      if (!selectables.contains(selectable)) {
+        continue;
+      }
       dispatchSelectionEventToChild(selectable, event);
     }
     currentSelectionStartIndex = 0;
@@ -3046,7 +3063,11 @@ abstract class MultiSelectableSelectionContainerDelegate extends SelectionContai
   /// Removes the selection of all [Selectable]s this delegate manages.
   @protected
   SelectionResult handleClearSelection(ClearSelectionEvent event) {
-    for (final Selectable selectable in selectables) {
+    // Event dispatch can synchronously unregister this or another child.
+    for (final selectable in List<Selectable>.of(selectables)) {
+      if (!selectables.contains(selectable)) {
+        continue;
+      }
       dispatchSelectionEventToChild(selectable, event);
     }
     currentSelectionEndIndex = -1;

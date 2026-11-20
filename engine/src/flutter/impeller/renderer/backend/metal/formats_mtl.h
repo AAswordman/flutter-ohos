@@ -76,6 +76,7 @@ MTLPixelFormat SafeMTLPixelFormatBGRA10_XR();
 constexpr MTLPixelFormat ToMTLPixelFormat(PixelFormat format) {
   switch (format) {
     case PixelFormat::kUnknown:
+    case PixelFormat::kB10G10R10A2UNorm:
       return MTLPixelFormatInvalid;
     case PixelFormat::kA8UNormInt:
       return MTLPixelFormatA8Unorm;

@@ -98,19 +98,26 @@ enum class ContentBoundsPromise {
 
 class LazyRenderingConfig {
  public:
-  LazyRenderingConfig(ContentContext& renderer,
-                      std::unique_ptr<EntityPassTarget> p_entity_pass_target);
+  // A failed allocation must never become an active render pass.
+  static std::optional<LazyRenderingConfig> Make(
+      ContentContext& renderer,
+      std::unique_ptr<EntityPassTarget> entity_pass_target);
 
   LazyRenderingConfig(LazyRenderingConfig&&) = default;
 
   /// Whether or not the clear color texture can still be updated.
   bool IsApplyingClearColor() const;
 
+  void RestartWithClearColor(ContentContext& renderer, Color color);
+
   EntityPassTarget* GetEntityPassTarget() const;
 
   InlinePassContext* GetInlinePassContext() const;
 
- public:
+ private:
+  LazyRenderingConfig(ContentContext& renderer,
+                      std::unique_ptr<EntityPassTarget> entity_pass_target);
+
   std::unique_ptr<EntityPassTarget> entity_pass_target_;
   std::unique_ptr<InlinePassContext> inline_pass_context_;
 };
@@ -254,7 +261,11 @@ class Canvas {
                     Entity::ClipOperation clip_op,
                     bool is_aa = true);
 
-  void EndReplay();
+  // False means the frame must not be presented. A later frame can retry with
+  // fresh targets after transient allocation pressure has passed.
+  bool EndReplay();
+
+  bool IsValid() const;
 
   uint64_t GetOpDepth() const { return current_depth_; }
 
@@ -299,6 +310,7 @@ class Canvas {
   RenderTarget render_target_;
   const bool is_onscreen_;
   bool requires_readback_;
+  bool render_target_failed_ = false;
   EntityPassClipStack clip_coverage_stack_;
 
   std::deque<CanvasStackEntry> transform_stack_;
@@ -380,7 +392,9 @@ class Canvas {
                                                bool reuse_depth = false,
                                                bool is_draw_rect = false);
 
-  void AddRenderEntityToCurrentPass(Entity& entity, bool reuse_depth = false,bool is_draw_rect = false);
+  void AddRenderEntityToCurrentPass(Entity& entity,
+                                    bool reuse_depth = false,
+                                    bool is_draw_rect = false);
 
   /// Returns true if this operation is consistent with a DrawShadow-like
   /// operation.
