@@ -736,7 +736,7 @@ void main() {
     );
   });
 
-  testWithoutContext('Windows desktop artifacts download the accessibility fix release', () async {
+  testWithoutContext('Windows desktop artifacts download the maintained engine release', () async {
     final fileSystem = MemoryFileSystem.test(style: FileSystemStyle.windows);
     final cache = Cache.test(
       fileSystem: fileSystem,
@@ -753,13 +753,13 @@ void main() {
       downloads.add(uri.toString());
     };
 
-    expect(artifacts.version, '3.41.10-ohos-0.0.2-beta.operit.8');
+    expect(artifacts.version, '3.41.10-ohos-0.0.2-beta.operit.10');
     await artifacts.updateInner(updater, fileSystem, FakeOperatingSystemUtils());
 
     expect(downloads, <String>[
-      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.8/windows-x64-debug.zip',
-      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.8/windows-x64-profile.zip',
-      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.8/windows-x64-release.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.10/windows-x64-debug.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.10/windows-x64-profile.zip',
+      'https://github.com/AAswordman/flutter-ohos/releases/download/3.41.10-ohos-0.0.2-beta.operit.10/windows-x64-release.zip',
     ]);
   });
 

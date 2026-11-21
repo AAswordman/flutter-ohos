@@ -1,6 +1,6 @@
 param(
   [ValidateSet('debug','profile','release')][string]$Mode = 'debug',
-  [string]$Version = '3.41.10-ohos-0.0.2-beta.operit.8',
+  [string]$Version = '3.41.10-ohos-0.0.2-beta.operit.10',
   [string]$Python = 'python',
   [int]$Jobs = 8,
   [switch]$RunTests,
