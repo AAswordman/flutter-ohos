@@ -394,7 +394,7 @@ class LinuxEngineArtifacts extends EngineCachedArtifact {
 
   /// Invalidates official engine caches when this custom engine is installed.
   @override
-  String get version => '3.41.10-ohos-0.0.2-beta.operit.4';
+  String get version => '3.41.10-ohos-0.0.2-beta.operit.12';
 
   /// Desktop engine archives contain no Dart packages.
   @override
