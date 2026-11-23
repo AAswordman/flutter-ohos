@@ -689,9 +689,16 @@ static void fl_view_class_init(FlViewClass* klass) {
 // Engine related construction.
 static void setup_engine(FlView* self) {
   self->view_accessible = fl_view_accessible_new(self->engine, self->view_id);
-  fl_socket_accessible_embed(
-      FL_SOCKET_ACCESSIBLE(gtk_widget_get_accessible(GTK_WIDGET(self))),
-      atk_plug_get_id(ATK_PLUG(self->view_accessible)));
+  // The plug id is only assigned once the accessibility bridge has registered
+  // the plug with the AT-SPI accessibility bus. Embedding with a null id would
+  // raise a GLib critical on every environment where that bus is unavailable,
+  // so only embed when the plug is registered.
+  gchar* plug_id = atk_plug_get_id(ATK_PLUG(self->view_accessible));
+  if (plug_id != nullptr) {
+    fl_socket_accessible_embed(
+        FL_SOCKET_ACCESSIBLE(gtk_widget_get_accessible(GTK_WIDGET(self))),
+        plug_id);
+  }
 
   self->pointer_manager = fl_pointer_manager_new(self->view_id, self->engine);
 
