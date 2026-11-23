@@ -12,7 +12,7 @@ case "$mode" in debug|profile|release) ;; *) echo "Invalid runtime mode: $mode" 
 case "$(uname -m)" in x86_64) arch=x64 ;; aarch64) arch=arm64 ;; *) echo 'Unsupported Linux engine architecture' >&2; exit 2 ;; esac
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
-gn_args=(--runtime-mode "$mode" --no-goma)
+gn_args=(--runtime-mode "$mode" --no-goma --enable-fontconfig)
 if [[ "$arch" == arm64 ]]; then
   gn_args+=(--target-os linux --linux-cpu arm64 --target-dir "host_$mode")
 fi
