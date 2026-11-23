@@ -34,6 +34,13 @@ def package(root: Path, archive: Path, mode: str, version: str, arch: str) -> Pa
     for symbol in ['fl_view_get_native_view_overlay', 'fl_view_register_native_view', 'fl_view_unregister_native_view']:
         if symbol not in exports:
             raise RuntimeError(f'Missing native-composition symbol: {symbol}')
+    linkage = subprocess.check_output(['nm', '-D', str(library)], text=True)
+    undefined = {line.split()[-1] for line in linkage.splitlines() if ' U ' in line}
+    for symbol in ['FcInitLoadConfigAndFonts', 'FcFontMatch']:
+        if symbol not in undefined:
+            raise RuntimeError(
+                f'Engine was built without fontconfig glyph fallback: {symbol} is not linked'
+            )
     manifest = {
         'frameworkVersion': version,
         'frameworkRevision': revision,
