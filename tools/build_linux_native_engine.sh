@@ -24,7 +24,6 @@ if [[ "$mode" == debug ]]; then targets+=(flutter_linux_unittests); fi
 if [[ "$mode" == debug ]]; then
   GDK_BACKEND=x11 xvfb-run -a dbus-run-session -- "$out/flutter_linux_unittests" \
     --gtest_output="xml:$out/linux-native-unit-tests.xml"
-  bash "$root/tools/test_linux_native_scene.sh"
 fi
 archive="$out/zip_archives/linux-$arch-$mode/linux-$arch-flutter-gtk.zip"
 python3 "$root/tools/package_linux_native_engine.py" "$root" "$archive" "$mode" "$version" "$arch"

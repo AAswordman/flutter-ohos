@@ -72,16 +72,38 @@ jobs:
             flutter/engine/src/out/host_${{ matrix.mode }}/linux-*.zip.sha256
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
-        if: matrix.mode == 'debug' && always()
+        if: matrix.mode == 'debug'
         with:
-          name: linux-${{ matrix.platform.arch }}-scene-results
-          path: |
-            flutter/engine/src/out/host_debug/linux-native-unit-tests.xml
-            flutter/engine/src/out/native_scene_probe/*.png
+          name: linux-${{ matrix.platform.arch }}-unit-test-results
+          path: flutter/engine/src/out/host_debug/linux-native-unit-tests.xml
+          if-no-files-found: warn
+
+  # The scene probe screenshots real alpha-blended native views. ubuntu-22.04
+  # Xvfb lacks the 32-bit ARGB visuals the blend assertions require, while
+  # engine archives must keep building against 22.04 for their glibc baseline,
+  # so the probe runs on ubuntu-24.04 against the engine sources directly.
+  scene-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Install scene probe dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang pkg-config libgtk-3-dev libepoxy-dev libwebkit2gtk-4.1-dev xvfb
+      - name: Run the native scene probe
+        run: bash tools/test_linux_native_scene.sh
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: linux-x64-scene-results
+          path: engine/src/out/native_scene_probe/*.png
           if-no-files-found: warn
   publish:
     if: inputs.publish
-    needs: build
+    needs: [build, scene-probe]
     runs-on: ubuntu-latest
     permissions:
       contents: write
