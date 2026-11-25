@@ -101,11 +101,28 @@ public class FlutterMutatorView extends FrameLayout {
     this.mutatorsStack = mutatorsStack;
     this.left = left;
     this.top = top;
-    FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams(width, height);
-    layoutParams.leftMargin = left;
-    layoutParams.topMargin = top;
-    setLayoutParams(layoutParams);
+    final FrameLayout.LayoutParams layoutParams = (FrameLayout.LayoutParams) getLayoutParams();
+    if (layoutParams != null
+        && layoutParams.width == width
+        && layoutParams.height == height
+        && getWidth() == width
+        && getHeight() == height
+        && !isLayoutRequested()) {
+      // Scrolling moves an already sized native view. Keep its layout reservation
+      // current without measuring the embedded subtree again for each position.
+      layoutParams.leftMargin = left;
+      layoutParams.topMargin = top;
+      offsetLeftAndRight(left - getLeft());
+      offsetTopAndBottom(top - getTop());
+    } else {
+      final FrameLayout.LayoutParams nextLayoutParams = new FrameLayout.LayoutParams(width, height);
+      nextLayoutParams.leftMargin = left;
+      nextLayoutParams.topMargin = top;
+      setLayoutParams(nextLayoutParams);
+    }
     setWillNotDraw(false);
+    // Mutators can change even when the native view's bounds stay the same.
+    invalidate();
   }
 
   @Override

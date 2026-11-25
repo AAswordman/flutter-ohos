@@ -19,6 +19,7 @@ import android.view.Surface;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
+import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.test.core.app.ApplicationProvider;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -30,6 +31,7 @@ import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.FlutterJNI;
 import io.flutter.embedding.engine.dart.DartExecutor;
 import io.flutter.embedding.engine.mutatorsstack.FlutterMutatorView;
+import io.flutter.embedding.engine.mutatorsstack.FlutterMutatorsStack;
 import io.flutter.embedding.engine.renderer.FlutterRenderer;
 import io.flutter.embedding.engine.systemchannels.AccessibilityChannel;
 import io.flutter.embedding.engine.systemchannels.MouseCursorChannel;
@@ -58,6 +60,37 @@ import org.robolectric.shadows.ShadowSurfaceView;
 
 @RunWith(AndroidJUnit4.class)
 public class PlatformViewsController2Test {
+  /** Native child layout is retained across position changes and updated on resize. */
+  @Test
+  @Config(shadows = {ShadowFlutterJNI.class, ShadowPlatformTaskQueue.class})
+  public void repeatedNativeFramesPreserveChildLayout() {
+    final PlatformViewsController2 controller = new PlatformViewsController2();
+    controller.setRegistry(new PlatformViewRegistryImpl());
+    final PlatformViewFactory factory = mock(PlatformViewFactory.class);
+    final PlatformView platformView = mock(PlatformView.class);
+    final View nativeView = spy(new View(ApplicationProvider.getApplicationContext()));
+    when(platformView.getView()).thenReturn(nativeView);
+    when(factory.create(any(), eq(0), any())).thenReturn(platformView);
+    controller.getRegistry().registerViewFactory("testType", factory);
+    final FlutterJNI jni = new FlutterJNI();
+    attach(jni, controller);
+    createPlatformView(jni, controller, 0, "testType");
+
+    controller.onDisplayPlatformView(0, 0, 0, 100, 200, 100, 200, new FlutterMutatorsStack());
+    final ViewGroup.LayoutParams original = nativeView.getLayoutParams();
+    clearInvocations(nativeView);
+    controller.onDisplayPlatformView(0, 0, 20, 100, 200, 100, 200, new FlutterMutatorsStack());
+
+    verify(nativeView, never()).setLayoutParams(any());
+    verify(nativeView, never()).bringToFront();
+    assertSame(original, nativeView.getLayoutParams());
+
+    controller.onDisplayPlatformView(0, 0, 20, 150, 250, 150, 250, new FlutterMutatorsStack());
+    assertEquals(150, nativeView.getLayoutParams().width);
+    assertEquals(250, nativeView.getLayoutParams().height);
+    controller.disposePlatformView(0);
+  }
+
   // An implementation of PlatformView that counts invocations of its lifecycle callbacks.
   class CountingPlatformView implements PlatformView {
     static final String VIEW_TYPE_ID = "CountingPlatformView";

@@ -1749,6 +1749,60 @@ public class PlatformViewsControllerTest {
     disposePlatformView(jni, platformViewsController, platformViewId);
   }
 
+  /** Repeated native frames retain layout and z-order while preserving Flutter overlays. */
+  @Test
+  @Config(shadows = {ShadowFlutterJNI.class, ShadowPlatformTaskQueue.class})
+  public void repeatedNativeFramesDoNotRelayoutOrReorderLayers() {
+    final PlatformViewsController controller = new PlatformViewsController();
+    final PlatformViewFactory factory = mock(PlatformViewFactory.class);
+    final PlatformView platformView = mock(PlatformView.class);
+    final Context context = ApplicationProvider.getApplicationContext();
+    final View nativeView = spy(new View(context));
+    when(platformView.getView()).thenReturn(nativeView);
+    when(factory.create(any(), eq(0), any())).thenReturn(platformView);
+    controller.getRegistry().registerViewFactory("testType", factory);
+    final FlutterJNI jni = new FlutterJNI();
+    jni.attachToNative();
+    controller.setFlutterJNI(jni);
+    final FlutterView flutterView = attach(jni, controller);
+    jni.onFirstFrame();
+    createPlatformView(jni, controller, 0, "testType", /* hybrid= */ true);
+    final PlatformOverlayView overlay = spy(new PlatformOverlayView(context));
+    final int overlayId = controller.createOverlaySurface(overlay).getId();
+
+    controller.onBeginFrame();
+    controller.onDisplayPlatformView(0, 0, 0, 100, 200, 100, 200, new FlutterMutatorsStack());
+    controller.onDisplayOverlaySurface(overlayId, 0, 0, 100, 200);
+    controller.onEndFrame();
+    final FrameLayout.LayoutParams nativeParams =
+        (FrameLayout.LayoutParams) nativeView.getLayoutParams();
+    final FrameLayout.LayoutParams overlayParams =
+        (FrameLayout.LayoutParams) overlay.getLayoutParams();
+    clearInvocations(nativeView, overlay);
+
+    controller.onBeginFrame();
+    controller.onDisplayPlatformView(0, 0, 20, 100, 200, 100, 200, new FlutterMutatorsStack());
+    controller.onDisplayOverlaySurface(overlayId, 0, 0, 100, 200);
+    controller.onEndFrame();
+
+    verify(nativeView, never()).setLayoutParams(any());
+    verify(overlay, never()).setLayoutParams(any());
+    verify(overlay, never()).bringToFront();
+    assertSame(nativeParams, nativeView.getLayoutParams());
+    assertSame(overlayParams, overlay.getLayoutParams());
+    assertSame(overlay, flutterView.getChildAt(flutterView.getChildCount() - 1));
+
+    // A changed native size still requests layout, and changed layer order is committed.
+    controller.onBeginFrame();
+    controller.onDisplayOverlaySurface(overlayId, 0, 0, 100, 200);
+    controller.onDisplayPlatformView(0, 0, 20, 150, 250, 150, 250, new FlutterMutatorsStack());
+    controller.onEndFrame();
+    assertEquals(150, nativeView.getLayoutParams().width);
+    assertEquals(250, nativeView.getLayoutParams().height);
+    assertSame(nativeView.getParent(), flutterView.getChildAt(flutterView.getChildCount() - 1));
+    disposePlatformView(jni, controller, 0);
+  }
+
   @Test
   @Config(shadows = {ShadowFlutterJNI.class, ShadowPlatformTaskQueue.class})
   public void dontConverRenderSurfaceWhenFlagIsTrue() {

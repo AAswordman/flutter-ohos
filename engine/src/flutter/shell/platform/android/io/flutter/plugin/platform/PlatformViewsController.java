@@ -148,6 +148,9 @@ public class PlatformViewsController implements PlatformViewsAccessibilityDelega
   // Platform view IDs that were displayed since the start of the current frame.
   private final HashSet<Integer> currentFrameUsedPlatformViewIds;
 
+  // Native views in Flutter paint order, including overlay surfaces.
+  private final List<View> currentFrameCompositionOrder;
+
   // Used to acquire the original motion events using the motionEventIds.
   private final MotionEventTracker motionEventTracker;
 
@@ -798,6 +801,7 @@ public class PlatformViewsController implements PlatformViewsAccessibilityDelega
     overlayLayerViews = new SparseArray<>();
     currentFrameUsedOverlayLayerIds = new HashSet<>();
     currentFrameUsedPlatformViewIds = new HashSet<>();
+    currentFrameCompositionOrder = new ArrayList<>();
     viewWrappers = new SparseArray<>();
     platformViews = new SparseArray<>();
     platformViewParent = new SparseArray<>();
@@ -896,6 +900,7 @@ public class PlatformViewsController implements PlatformViewsAccessibilityDelega
    * fragment needs to be displayed, a new Flutter view is created, so attachToView is called again.
    */
   public void detachFromView() {
+    currentFrameCompositionOrder.clear();
     // Remove wrapper for platform views that use GL texture.
     for (int index = 0; index < viewWrappers.size(); index++) {
       final PlatformViewWrapper view = viewWrappers.valueAt(index);
@@ -1253,14 +1258,16 @@ public class PlatformViewsController implements PlatformViewsAccessibilityDelega
     final FlutterMutatorView parentView = platformViewParent.get(viewId);
     parentView.readyToDisplay(mutatorsStack, x, y, width, height);
     parentView.setVisibility(View.VISIBLE);
-    parentView.bringToFront();
+    currentFrameCompositionOrder.add(parentView);
 
-    final FrameLayout.LayoutParams layoutParams =
-        new FrameLayout.LayoutParams(viewWidth, viewHeight);
     final View view = platformViews.get(viewId).getView();
     if (view != null) {
-      view.setLayoutParams(layoutParams);
-      view.bringToFront();
+      final ViewGroup.LayoutParams layoutParams = view.getLayoutParams();
+      if (layoutParams == null
+          || layoutParams.width != viewWidth
+          || layoutParams.height != viewHeight) {
+        view.setLayoutParams(new FrameLayout.LayoutParams(viewWidth, viewHeight));
+      }
     }
     currentFrameUsedPlatformViewIds.add(viewId);
   }
@@ -1286,18 +1293,27 @@ public class PlatformViewsController implements PlatformViewsAccessibilityDelega
       flutterView.addView(overlayView);
     }
 
-    FrameLayout.LayoutParams layoutParams = new FrameLayout.LayoutParams((int) width, (int) height);
-    layoutParams.leftMargin = (int) x;
-    layoutParams.topMargin = (int) y;
-    overlayView.setLayoutParams(layoutParams);
+    final FrameLayout.LayoutParams layoutParams =
+        (FrameLayout.LayoutParams) overlayView.getLayoutParams();
+    if (layoutParams == null
+        || layoutParams.width != width
+        || layoutParams.height != height
+        || layoutParams.leftMargin != x
+        || layoutParams.topMargin != y) {
+      final FrameLayout.LayoutParams nextLayoutParams = new FrameLayout.LayoutParams(width, height);
+      nextLayoutParams.leftMargin = x;
+      nextLayoutParams.topMargin = y;
+      overlayView.setLayoutParams(nextLayoutParams);
+    }
     overlayView.setVisibility(View.VISIBLE);
-    overlayView.bringToFront();
+    currentFrameCompositionOrder.add(overlayView);
     currentFrameUsedOverlayLayerIds.add(id);
   }
 
   public void onBeginFrame() {
     currentFrameUsedOverlayLayerIds.clear();
     currentFrameUsedPlatformViewIds.clear();
+    currentFrameCompositionOrder.clear();
   }
 
   /**
@@ -1306,6 +1322,7 @@ public class PlatformViewsController implements PlatformViewsAccessibilityDelega
    * <p>This member is not intended for public use, and is only visible for testing.
    */
   public void onEndFrame() {
+    synchronizeCompositionOrder();
     // If there are no platform views in the current frame,
     // then revert the image view surface and use the previous surface.
     //
@@ -1331,6 +1348,22 @@ public class PlatformViewsController implements PlatformViewsAccessibilityDelega
     final boolean isFrameRenderedUsingImageReaders =
         flutterViewConvertedToImageView && flutterView.acquireLatestImageViewFrame();
     finishFrame(isFrameRenderedUsingImageReaders);
+  }
+
+  /** Reorders native layers only when their final composition order changes. */
+  private void synchronizeCompositionOrder() {
+    if (currentFrameCompositionOrder.isEmpty()) {
+      return;
+    }
+    final int firstIndex = flutterView.getChildCount() - currentFrameCompositionOrder.size();
+    for (int i = 0; i < currentFrameCompositionOrder.size(); i++) {
+      if (flutterView.getChildAt(firstIndex + i) != currentFrameCompositionOrder.get(i)) {
+        for (View view : currentFrameCompositionOrder) {
+          view.bringToFront();
+        }
+        return;
+      }
+    }
   }
 
   private void finishFrame(boolean isFrameRenderedUsingImageReaders) {

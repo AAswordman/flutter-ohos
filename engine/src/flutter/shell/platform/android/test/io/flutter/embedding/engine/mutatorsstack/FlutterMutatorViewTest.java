@@ -30,6 +30,46 @@ import org.robolectric.annotation.Implements;
 public class FlutterMutatorViewTest {
   private final Context ctx = ApplicationProvider.getApplicationContext();
 
+  /** Scrolling preserves native layout while updating bounds used by touch dispatch. */
+  @Test
+  public void scrollingDoesNotRequestNativeLayout() {
+    final FlutterMutatorView view = new FlutterMutatorView(ctx);
+    final FlutterMutatorsStack stack = new FlutterMutatorsStack();
+    view.readyToDisplay(stack, 10, 20, 100, 200);
+    view.measure(
+        View.MeasureSpec.makeMeasureSpec(100, View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY));
+    view.layout(10, 20, 110, 220);
+    final FrameLayout.LayoutParams original = (FrameLayout.LayoutParams) view.getLayoutParams();
+    assertFalse(view.isLayoutRequested());
+
+    view.readyToDisplay(stack, 30, -40, 100, 200);
+
+    assertSame(original, view.getLayoutParams());
+    assertFalse(view.isLayoutRequested());
+    assertEquals(30, view.getLeft());
+    assertEquals(-40, view.getTop());
+    assertEquals(130, view.getRight());
+    assertEquals(160, view.getBottom());
+    assertEquals(30, original.leftMargin);
+    assertEquals(-40, original.topMargin);
+
+    // A later ancestor layout must retain the position committed during scrolling.
+    final FrameLayout parent = new FrameLayout(ctx);
+    parent.addView(view);
+    parent.measure(
+        View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY),
+        View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY));
+    parent.layout(0, 0, 500, 500);
+    assertEquals(30, view.getLeft());
+    assertEquals(-40, view.getTop());
+
+    view.readyToDisplay(stack, 30, -40, 150, 250);
+    assertTrue(view.isLayoutRequested());
+    assertEquals(150, view.getLayoutParams().width);
+    assertEquals(250, view.getLayoutParams().height);
+  }
+
   @Test
   public void canDragViews() {
     final AndroidTouchProcessor touchProcessor = mock(AndroidTouchProcessor.class);

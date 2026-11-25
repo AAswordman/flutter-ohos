@@ -517,12 +517,14 @@ public class PlatformViewsController2 implements PlatformViewsAccessibilityDeleg
     parentView.setVisibility(View.VISIBLE);
     parentView.bringToFront();
 
-    final FrameLayout.LayoutParams layoutParams =
-        new FrameLayout.LayoutParams(viewWidth, viewHeight);
     final View view = platformViews.get(viewId).getView();
     if (view != null) {
-      view.setLayoutParams(layoutParams);
-      view.bringToFront();
+      final ViewGroup.LayoutParams layoutParams = view.getLayoutParams();
+      if (layoutParams == null
+          || layoutParams.width != viewWidth
+          || layoutParams.height != viewHeight) {
+        view.setLayoutParams(new FrameLayout.LayoutParams(viewWidth, viewHeight));
+      }
     }
   }
 
